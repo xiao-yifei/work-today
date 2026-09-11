@@ -1,0 +1,74 @@
+{
+  "pages": [
+    {
+      "path": "pages/home/index",
+      "style": {
+        "navigationBarTitleText": "今日",
+        "enableShareAppMessage": true,
+        "enableShareTimeline": true
+      }
+    },
+    {
+      "path": "pages/calc/index",
+      "style": {
+        "navigationBarTitleText": "换算",
+        "enableShareAppMessage": true,
+        "enableShareTimeline": true
+      }
+    },
+    {
+      "path": "pages/calendar/index",
+      "style": {
+        "navigationBarTitleText": "日历",
+        "enableShareAppMessage": true,
+        "enableShareTimeline": true
+      }
+    },
+    {
+      "path": "pages/me/index",
+      "style": {
+        "navigationBarTitleText": "我的",
+        "enableShareAppMessage": true,
+        "enableShareTimeline": true
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "WORK TODAY",
+    "navigationBarBackgroundColor": "#F4EFE6",
+    "backgroundColor": "#F4EFE6"
+  },
+  "tabBar": {
+    "color": "#8A8478",
+    "selectedColor": "#2B2A26",
+    "backgroundColor": "#F7F3EB",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/home/index",
+        "text": "今日",
+        "iconPath": "static/tab-home.png",
+        "selectedIconPath": "static/tab-home-on.png"
+      },
+      {
+        "pagePath": "pages/calc/index",
+        "text": "换算",
+        "iconPath": "static/tab-calc.png",
+        "selectedIconPath": "static/tab-calc-on.png"
+      },
+      {
+        "pagePath": "pages/calendar/index",
+        "text": "日历",
+        "iconPath": "static/tab-cal.png",
+        "selectedIconPath": "static/tab-cal-on.png"
+      },
+      {
+        "pagePath": "pages/me/index",
+        "text": "我的",
+        "iconPath": "static/tab-me.png",
+        "selectedIconPath": "static/tab-me-on.png"
+      }
+    ]
+  }
+}
