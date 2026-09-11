@@ -15,7 +15,7 @@ import { storeToRefs } from 'pinia'
 import { computed, reactive, watch } from 'vue'
 import { useProfileStore } from '../../stores/profile'
 import type { Profile } from '../../types'
-import { dailySalary, formatMoney, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
+import { countWorkDaysInMonth, dailySalary, formatMoney, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
 
 const store = useProfileStore()
 const { profile } = storeToRefs(store)
@@ -29,17 +29,22 @@ const form = reactive<Profile>({
   lunchEndTime: profile.value.lunchEndTime,
   memo: profile.value.memo,
   goods: profile.value.goods.map((item) => ({ ...item })),
+  offDates: [...profile.value.offDates],
+  workDates: [...profile.value.workDates],
 })
+
+const workDays = computed(() =>
+  countWorkDaysInMonth(new Date(), store.profile.offDates, store.profile.workDates),
+)
 
 const preview = computed(() => {
   const total = workSecondsFromTimes(form.startTime, form.endTime, form.lunchStartTime, form.lunchEndTime)
-  const daily = dailySalary(Number(form.monthlySalary) || 0, Number(form.workDaysPerMonth) || 1)
+  const daily = dailySalary(Number(form.monthlySalary) || 0, workDays.value)
   return wagesFromDaily(daily, total)
 })
 
 const invalid = computed(() => {
   if (!(Number(form.monthlySalary) > 0)) return '请填写有效月薪'
-  if (!(Number(form.workDaysPerMonth) >= 1 && Number(form.workDaysPerMonth) <= 31)) return '工作日需在 1–31 之间'
   return scheduleError(form)
 })
 
@@ -47,7 +52,7 @@ function persist() {
   if (invalid.value) return
   store.save({
     monthlySalary: Number(form.monthlySalary),
-    workDaysPerMonth: Number(form.workDaysPerMonth),
+    workDaysPerMonth: workDays.value,
     startTime: form.startTime,
     endTime: form.endTime,
     lunchStartTime: form.lunchStartTime,
@@ -57,6 +62,8 @@ function persist() {
       ...item,
       price: Number(item.price) || 1,
     })),
+    offDates: [...store.profile.offDates],
+    workDates: [...store.profile.workDates],
   })
 }
 
@@ -73,14 +80,12 @@ function restore() {
   form.lunchEndTime = next.lunchEndTime
   form.memo = next.memo
   form.goods = next.goods.map((item) => ({ ...item }))
+  form.offDates = [...next.offDates]
+  form.workDates = [...next.workDates]
 }
 
 function onSalary(e: { detail: { value: string } }) {
   form.monthlySalary = Number(e.detail.value) || 0
-}
-
-function onDays(e: { detail: { value: string } }) {
-  form.workDaysPerMonth = Number(e.detail.value) || 0
 }
 
 function onCoffee(e: { detail: { value: string } }) {
@@ -116,11 +121,12 @@ function onMemo(e: { detail: { value: string } }) {
   <view class="page">
     <text class="eyebrow">PROFILE</text>
     <text class="title">工作设置</text>
-    <text class="lead">改完会立刻存到本地，回首页就能看到新的倒计时和收入。</text>
+    <text class="lead">改完会立刻存到本地。每月上班天数在日历里点，不用在这里填。</text>
 
     <view class="card">
-      <text class="muted">按当前设置，时薪约为</text>
+      <text class="muted">按当前月薪和日历上班天数，时薪约为</text>
       <text class="big">¥{{ formatMoney(preview.hourly) }}</text>
+      <text class="muted">本月上班 {{ workDays }} 天，在日历里改</text>
     </view>
 
     <view class="card form">
@@ -133,18 +139,6 @@ function onMemo(e: { detail: { value: string } }) {
             :cursor-spacing="32"
             adjust-position
             @input="onSalary"
-          />
-        </view>
-      </view>
-      <view class="field">
-        <text class="label">每月工作日</text>
-        <view class="input-wrap">
-          <input
-            type="digit"
-            :value="String(form.workDaysPerMonth)"
-            :cursor-spacing="32"
-            adjust-position
-            @input="onDays"
           />
         </view>
       </view>

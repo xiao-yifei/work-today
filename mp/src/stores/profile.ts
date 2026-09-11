@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { GoodsItem, Profile } from '../types'
+import { dateKey, isOfficialOffDay } from '../utils/work'
 
 const STORAGE_KEY = 'work-today-profile-v1'
 
@@ -18,6 +19,8 @@ export const defaultProfile: Profile = {
   lunchEndTime: '13:00',
   memo: '今天要汇报王总的方案',
   goods: defaultGoods,
+  offDates: [],
+  workDates: [],
 }
 
 function emptyProfile(): Profile {
@@ -36,6 +39,12 @@ function loadProfile(): Profile {
         parsed.goods?.length === 2
           ? parsed.goods.map((item, index) => ({ ...defaultGoods[index], ...item }))
           : defaultGoods.map((item) => ({ ...item })),
+      offDates: Array.isArray(parsed.offDates)
+        ? parsed.offDates.filter((item): item is string => typeof item === 'string')
+        : [],
+      workDates: Array.isArray(parsed.workDates)
+        ? parsed.workDates.filter((item): item is string => typeof item === 'string')
+        : [],
     }
   } catch {
     return emptyProfile()
@@ -60,12 +69,36 @@ export const useProfileStore = defineStore('profile', () => {
     profile.value = {
       ...next,
       goods: next.goods.map((item) => ({ ...item })),
+      offDates: Array.isArray(next.offDates) ? [...next.offDates] : [...profile.value.offDates],
+      workDates: Array.isArray(next.workDates) ? [...next.workDates] : [...profile.value.workDates],
+    }
+  }
+
+  function setDateOff(date: Date, off: boolean) {
+    const key = dateKey(date)
+    const offDates = new Set(profile.value.offDates)
+    const workDates = new Set(profile.value.workDates)
+    offDates.delete(key)
+    workDates.delete(key)
+    if (off !== isOfficialOffDay(date)) {
+      if (off) offDates.add(key)
+      else workDates.add(key)
+    }
+    profile.value = {
+      ...profile.value,
+      offDates: [...offDates],
+      workDates: [...workDates],
     }
   }
 
   function reset() {
-    save(defaultProfile)
+    save({
+      ...defaultProfile,
+      goods: defaultGoods.map((item) => ({ ...item })),
+      offDates: [],
+      workDates: [],
+    })
   }
 
-  return { profile, coffee, lunch, save, reset }
+  return { profile, coffee, lunch, save, setDateOff, reset }
 })

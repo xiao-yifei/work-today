@@ -1,4 +1,5 @@
 import type { Profile, WorkStatus } from '../types';
+import { isDefaultOffDay, isHolidayOff, isHolidayWork } from './holidays';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 
@@ -114,20 +115,107 @@ export function wagesFromDaily(daily: number, totalDaySeconds: number) {
   }
 }
 
+export function dateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function isWeekday(date: Date): boolean {
   const day = date.getDay()
   return day !== 0 && day !== 6
 }
 
-export function countWeekdaysUntilYesterday(now: Date): number {
+export function isOfficialOffDay(date: Date): boolean {
+  const key = dateKey(date)
+  return isDefaultOffDay(date, key, !isWeekday(date))
+}
+
+export function isOffDay(date: Date, offDates: string[] = [], workDates: string[] = []): boolean {
+  const key = dateKey(date)
+  if (workDates.includes(key)) return false
+  if (offDates.includes(key)) return true
+  return isDefaultOffDay(date, key, !isWeekday(date))
+}
+
+export const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
+
+export interface MonthDay {
+  key: string
+  day: number
+  isToday: boolean
+  isWeekend: boolean
+  isOff: boolean
+  isHoliday: boolean
+  isMakeup: boolean
+}
+
+export function buildMonthDays(
+  now: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+): Array<MonthDay | null> {
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const last = new Date(year, month + 1, 0).getDate()
+  const pad = new Date(year, month, 1).getDay()
+  const today = dateKey(now)
+  const cells: Array<MonthDay | null> = Array.from({ length: pad }, () => null)
+  for (let day = 1; day <= last; day += 1) {
+    const date = new Date(year, month, day)
+    const key = dateKey(date)
+    cells.push({
+      key,
+      day,
+      isToday: key === today,
+      isWeekend: !isWeekday(date),
+      isOff: isOffDay(date, offDates, workDates),
+      isHoliday: isHolidayOff(key),
+      isMakeup: isHolidayWork(key),
+    })
+  }
+  return cells
+}
+
+export function countWeekdaysUntilYesterday(
+  now: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+): number {
   const year = now.getFullYear()
   const month = now.getMonth()
   const today = now.getDate()
   let count = 0
   for (let day = 1; day < today; day += 1) {
-    if (isWeekday(new Date(year, month, day))) count += 1
+    const date = new Date(year, month, day)
+    if (!isOffDay(date, offDates, workDates)) count += 1
   }
   return count
+}
+
+export function countWorkDaysInMonth(
+  now: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+): number {
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const last = new Date(year, month + 1, 0).getDate()
+  let count = 0
+  for (let day = 1; day <= last; day += 1) {
+    if (!isOffDay(new Date(year, month, day), offDates, workDates)) count += 1
+  }
+  return count
+}
+
+export function countWorkedDaysSoFar(
+  now: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  includeToday = false,
+): number {
+  return countWeekdaysUntilYesterday(now, offDates, workDates) + (includeToday ? 1 : 0)
 }
 
 export function monthTotal(
@@ -135,8 +223,10 @@ export function monthTotal(
   daily: number,
   todayEarned: number,
   workDaysPerMonth: number,
+  offDates: string[] = [],
+  workDates: string[] = [],
 ): number {
-  const pastDays = Math.min(countWeekdaysUntilYesterday(now), workDaysPerMonth)
+  const pastDays = Math.min(countWeekdaysUntilYesterday(now, offDates, workDates), workDaysPerMonth)
   return pastDays * daily + todayEarned
 }
 
@@ -154,6 +244,7 @@ export function formatWage(value: number, digits = 2): string {
 }
 
 export function statusLabel(status: WorkStatus): string {
+  if (status === 'off') return '今天休息'
   if (status === 'before') return '未上班'
   if (status === 'after') return '已下班'
   if (status === 'lunch') return '午休中'
@@ -161,6 +252,7 @@ export function statusLabel(status: WorkStatus): string {
 }
 
 export function heroTitle(status: WorkStatus): string {
+  if (status === 'off') return '今日休息'
   if (status === 'before') return '距离上班还有'
   if (status === 'after') return '今日已收工'
   if (status === 'lunch') return '距离午休结束还有'
@@ -168,6 +260,7 @@ export function heroTitle(status: WorkStatus): string {
 }
 
 export function heroSubtitle(status: WorkStatus): string {
+  if (status === 'off') return '不算工时，好好过一天'
   if (status === 'before') return '先准备好，不慌不忙'
   if (status === 'after') return '今天也很棒，好好休息'
   if (status === 'lunch') return '先吃饭，这段时间不计薪'
@@ -175,6 +268,7 @@ export function heroSubtitle(status: WorkStatus): string {
 }
 
 export function companionText(status: WorkStatus, remaining: number): string {
+  if (status === 'off') return '今天不上班，我陪你趴着。'
   if (status === 'before') return '还没开工，我先趴一会儿。'
   if (status === 'after') return '收工啦，今天也辛苦了。'
   if (status === 'lunch') return '午休中，先吃饭，我看着点。'
@@ -185,23 +279,49 @@ export function companionText(status: WorkStatus, remaining: number): string {
 }
 
 export function computeWorkDay(now: Date, profile: Profile) {
+  const offDates = profile.offDates ?? []
+  const workDates = profile.workDates ?? []
   const start = atTime(now, profile.startTime)
   const lunchStart = atTime(now, profile.lunchStartTime)
   const lunchEnd = atTime(now, profile.lunchEndTime)
   const end = atTime(now, profile.endTime)
-  const status = getStatus(now, start, lunchStart, lunchEnd, end)
   const total = workSecondsFromTimes(
     profile.startTime,
     profile.endTime,
     profile.lunchStartTime,
     profile.lunchEndTime,
   )
+  const workDays = countWorkDaysInMonth(now, offDates, workDates)
+  const daily = dailySalary(profile.monthlySalary, workDays)
+  const wage = wagesFromDaily(daily, total)
+  const pastWorkedDays = countWorkedDaysSoFar(now, offDates, workDates)
+
+  if (isOffDay(now, offDates, workDates)) {
+    return {
+      start,
+      lunchStart,
+      lunchEnd,
+      end,
+      status: 'off' as const,
+      total,
+      worked: 0,
+      remaining: 0,
+      daily,
+      wage,
+      earned: 0,
+      progress: 0,
+      workDays,
+      workedDays: pastWorkedDays,
+      monthEarned: monthTotal(now, daily, 0, workDays, offDates, workDates),
+    }
+  }
+
+  const status = getStatus(now, start, lunchStart, lunchEnd, end)
   const worked = getWorkedSeconds(now, start, lunchStart, lunchEnd, end, status)
   const remaining = getRemainingSeconds(now, start, lunchStart, lunchEnd, end, status)
-  const daily = dailySalary(profile.monthlySalary, profile.workDaysPerMonth)
-  const wage = wagesFromDaily(daily, total)
   const earned = worked * wage.second
   const progress = Math.min(1, worked / total)
+  const workedDays = countWorkedDaysSoFar(now, offDates, workDates, status !== 'before')
 
   return {
     start,
@@ -216,6 +336,8 @@ export function computeWorkDay(now: Date, profile: Profile) {
     wage,
     earned,
     progress,
-    monthEarned: monthTotal(now, daily, earned, profile.workDaysPerMonth),
+    workDays,
+    workedDays,
+    monthEarned: monthTotal(now, daily, earned, workDays, offDates, workDates),
   }
 }

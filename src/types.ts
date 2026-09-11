@@ -1,4 +1,4 @@
-export type WorkStatus = 'before' | 'working' | 'lunch' | 'after'
+export type WorkStatus = 'before' | 'working' | 'lunch' | 'after' | 'off'
 
 export interface GoodsItem {
   id: string
@@ -16,4 +16,6 @@ export interface Profile {
   lunchEndTime: string
   memo: string
   goods: GoodsItem[]
+  offDates: string[]
+  workDates: string[]
 }

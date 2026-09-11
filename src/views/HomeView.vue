@@ -19,11 +19,16 @@ import {
 const store = useProfileStore()
 const { now, snapshot } = useWorkDay()
 
+const resting = computed(() => snapshot.value.status === 'off')
 const dateLabel = computed(() => formatDateLabel(now.value))
 const clockText = computed(() => {
-  if (snapshot.value.status === 'after') return '00:00:00'
+  if (resting.value || snapshot.value.status === 'after') return '00:00:00'
   return formatClock(snapshot.value.remaining)
 })
+const workedLabel = computed(() =>
+  resting.value ? '今日休息' : `已工作 ${formatDuration(snapshot.value.worked)}`,
+)
+
 const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const coffeeCount = computed(() => snapshot.value.earned / store.coffee.price)
 const lunchCount = computed(() => snapshot.value.earned / store.lunch.price)
@@ -36,7 +41,7 @@ const lunchCount = computed(() => snapshot.value.earned / store.lunch.price)
         <p class="eyebrow">WORK TODAY <span>今天也很棒 ✨</span></p>
         <div class="title-row">
           <h1>{{ dateLabel }}</h1>
-          <router-link class="badge" to="/me">
+          <router-link class="badge" :class="{ rest: resting }" :to="resting ? '/calendar' : '/me'">
             <i />
             {{ statusLabel(snapshot.status) }}
           </router-link>
@@ -54,7 +59,7 @@ const lunchCount = computed(() => snapshot.value.earned / store.lunch.price)
             <p class="earn-label">今日已赚</p>
             <p class="earn-value">¥{{ formatMoney(snapshot.earned) }}</p>
           </div>
-          <router-link class="month" to="/calendar">本月累计 ¥{{ formatMoney(snapshot.monthEarned) }} ›</router-link>
+          <router-link class="month" to="/calendar">已上 {{ snapshot.workedDays }} 天 · ¥{{ formatMoney(snapshot.monthEarned) }} ›</router-link>
         </div>
       </div>
       <div class="hero-art">
@@ -72,7 +77,7 @@ const lunchCount = computed(() => snapshot.value.earned / store.lunch.price)
       </div>
       <div class="bar-meta">
         <span>{{ store.profile.startTime }}</span>
-        <span>已工作 {{ formatDuration(snapshot.worked) }}</span>
+        <span>{{ workedLabel }}</span>
         <span>{{ store.profile.endTime }}</span>
       </div>
       <p class="lunch-meta">午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时</p>
@@ -197,6 +202,10 @@ h1 {
   height: 6px;
   border-radius: 50%;
   background: #d7c16a;
+}
+
+.badge.rest {
+  background: #7c6246;
 }
 
 .hero {

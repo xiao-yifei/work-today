@@ -17,25 +17,30 @@ import MascotFace from '../../components/MascotFace.vue'
 import { useWorkDay } from '../../composables/useWorkDay'
 import { useProfileStore } from '../../stores/profile'
 import {
-  companionText,
-  formatClock,
-  formatDateLabel,
-  formatDuration,
-  formatMoney,
-  formatWage,
-  heroSubtitle,
-  heroTitle,
-  statusLabel,
+    companionText,
+    formatClock,
+    formatDateLabel,
+    formatDuration,
+    formatMoney,
+    formatWage,
+    heroSubtitle,
+    heroTitle,
+    statusLabel,
 } from '../../utils/work'
 
 const store = useProfileStore()
 const { now, snapshot } = useWorkDay()
 
+const resting = computed(() => snapshot.value.status === 'off')
 const dateLabel = computed(() => formatDateLabel(now.value))
 const clockText = computed(() => {
-  if (snapshot.value.status === 'after') return '00:00:00'
+  if (resting.value || snapshot.value.status === 'after') return '00:00:00'
   return formatClock(snapshot.value.remaining)
 })
+const workedLabel = computed(() =>
+  resting.value ? '今日休息' : `已工作 ${formatDuration(snapshot.value.worked)}`,
+)
+
 const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
 const coffeeCount = computed(() => (snapshot.value.earned / store.coffee.price).toFixed(1))
@@ -52,7 +57,7 @@ function goTab(url: string) {
       <text class="eyebrow">WORK TODAY 今天也很棒</text>
       <view class="title-row">
         <text class="date">{{ dateLabel }}</text>
-        <view class="badge" @click="goTab('/pages/me/index')">
+        <view class="badge" :class="{ rest: resting }" @click="goTab(resting ? '/pages/calendar/index' : '/pages/me/index')">
           <view class="dot" />
           <text class="badge-text">{{ statusLabel(snapshot.status) }}</text>
         </view>
@@ -68,7 +73,7 @@ function goTab(url: string) {
           <text class="earn-label">今日已赚</text>
           <text class="earn-value">¥{{ formatMoney(snapshot.earned) }}</text>
           <text class="month" @click="goTab('/pages/calendar/index')">
-            本月累计 ¥{{ formatMoney(snapshot.monthEarned) }} ›
+            已上 {{ snapshot.workedDays }} 天 · ¥{{ formatMoney(snapshot.monthEarned) }} ›
           </text>
         </view>
       </view>
@@ -87,7 +92,7 @@ function goTab(url: string) {
       </view>
       <view class="bar-meta">
         <text>{{ store.profile.startTime }}</text>
-        <text>已工作 {{ formatDuration(snapshot.worked) }}</text>
+        <text>{{ workedLabel }}</text>
         <text>{{ store.profile.endTime }}</text>
       </view>
       <text class="lunch-meta">午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时</text>
@@ -147,8 +152,6 @@ function goTab(url: string) {
       </view>
       <MascotFace />
     </view>
-
-    <button class="share-btn" open-type="share">分享给朋友</button>
   </view>
 </template>
 
@@ -197,6 +200,10 @@ function goTab(url: string) {
 .badge-text {
   color: #f6f1e8;
   font-size: 22rpx;
+}
+
+.badge.rest {
+  background: #7c6246;
 }
 
 .hero {
@@ -414,20 +421,5 @@ function goTab(url: string) {
   font-size: 26rpx;
   color: #6d675c;
   line-height: 1.6;
-}
-
-.share-btn {
-  margin-top: 20rpx;
-  height: 88rpx;
-  line-height: 88rpx;
-  border: none;
-  border-radius: 20rpx;
-  background: #2b2a26;
-  color: #f6f1e8;
-  font-size: 28rpx;
-}
-
-.share-btn::after {
-  border: none;
 }
 </style>
