@@ -74,6 +74,10 @@ export const useProfileStore = defineStore('profile', () => {
     }
   }
 
+  function setMemo(memo: string) {
+    profile.value = { ...profile.value, memo }
+  }
+
   function setDateOff(date: Date, off: boolean) {
     const key = dateKey(date)
     const offDates = new Set(profile.value.offDates)
@@ -100,5 +104,5 @@ export const useProfileStore = defineStore('profile', () => {
     })
   }
 
-  return { profile, coffee, lunch, save, setDateOff, reset }
+  return { profile, coffee, lunch, save, setMemo, setDateOff, reset }
 })

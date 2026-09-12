@@ -57,7 +57,7 @@ function persist() {
     endTime: form.endTime,
     lunchStartTime: form.lunchStartTime,
     lunchEndTime: form.lunchEndTime,
-    memo: form.memo.trim(),
+    memo: store.profile.memo,
     goods: form.goods.map((item) => ({
       ...item,
       price: Number(item.price) || 1,
@@ -78,7 +78,6 @@ function restore() {
   form.endTime = next.endTime
   form.lunchStartTime = next.lunchStartTime
   form.lunchEndTime = next.lunchEndTime
-  form.memo = next.memo
   form.goods = next.goods.map((item) => ({ ...item }))
   form.offDates = [...next.offDates]
   form.workDates = [...next.workDates]
@@ -110,10 +109,6 @@ function onLunchStart(e: { detail: { value: string } }) {
 
 function onLunchEnd(e: { detail: { value: string } }) {
   form.lunchEndTime = e.detail.value
-}
-
-function onMemo(e: { detail: { value: string } }) {
-  form.memo = e.detail.value
 }
 </script>
 
@@ -169,10 +164,6 @@ function onMemo(e: { detail: { value: string } }) {
             <view class="picker">{{ form.lunchEndTime }}</view>
           </picker>
         </view>
-      </view>
-      <view class="field">
-        <text class="label">今日备忘</text>
-        <textarea :value="form.memo" maxlength="80" @input="onMemo" />
       </view>
       <view class="split">
         <view class="field half">
@@ -296,18 +287,6 @@ function onMemo(e: { detail: { value: string } }) {
   align-items: center;
   color: #1c1b18;
   font-size: 28rpx;
-}
-
-textarea {
-  width: 100%;
-  height: 160rpx;
-  padding: 20rpx 24rpx;
-  border-radius: 20rpx;
-  background: #f7f3eb;
-  color: #1c1b18;
-  font-size: 28rpx;
-  line-height: 1.5;
-  box-sizing: border-box;
 }
 
 .split {

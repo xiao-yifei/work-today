@@ -11,7 +11,8 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { onHide } from '@dcloudio/uni-app'
+import { computed, ref } from 'vue'
 import MascotArt from '../../components/MascotArt.vue'
 import MascotFace from '../../components/MascotFace.vue'
 import { useWorkDay } from '../../composables/useWorkDay'
@@ -46,9 +47,25 @@ const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
 const coffeeCount = computed(() => (snapshot.value.earned / store.coffee.price).toFixed(1))
 const lunchCount = computed(() => (snapshot.value.earned / store.lunch.price).toFixed(1))
 
+const editingMemo = ref(false)
+
 function goTab(url: string) {
   uni.switchTab({ url })
 }
+
+function toggleMemo() {
+  if (editingMemo.value) store.setMemo(store.profile.memo.trim())
+  editingMemo.value = !editingMemo.value
+}
+
+function onMemo(e: { detail: { value: string } }) {
+  store.setMemo(e.detail.value)
+}
+
+onHide(() => {
+  if (editingMemo.value) store.setMemo(store.profile.memo.trim())
+  editingMemo.value = false
+})
 </script>
 
 <template>
@@ -141,8 +158,22 @@ function goTab(url: string) {
       </view>
     </view>
 
-    <view class="card" @click="goTab('/pages/me/index')">
-      <text class="memo">· {{ store.profile.memo || '今天还没有备忘' }}</text>
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">今日备忘</text>
+        <view class="edit-btn" @click="toggleMemo">
+          <text>{{ editingMemo ? '完成' : '编辑' }}</text>
+        </view>
+      </view>
+      <textarea
+        v-if="editingMemo"
+        class="memo-input"
+        :value="store.profile.memo"
+        maxlength="80"
+        placeholder="今天还没有备忘"
+        @input="onMemo"
+      />
+      <text v-else class="memo">· {{ store.profile.memo || '今天还没有备忘' }}</text>
     </view>
 
     <view class="card companion">
@@ -398,10 +429,37 @@ function goTab(url: string) {
   color: #8a8478;
 }
 
+.edit-btn {
+  height: 56rpx;
+  padding: 0 24rpx;
+  border-radius: 28rpx;
+  background: #2b2a26;
+}
+
+.edit-btn text {
+  color: #f6f1e8;
+  font-size: 22rpx;
+}
+
 .memo {
+  display: block;
+  margin-top: 16rpx;
   font-size: 28rpx;
   color: #3d3b35;
   line-height: 1.6;
+}
+
+.memo-input {
+  width: 100%;
+  height: 160rpx;
+  margin-top: 16rpx;
+  padding: 20rpx 24rpx;
+  border-radius: 20rpx;
+  background: #f7f3eb;
+  color: #1c1b18;
+  font-size: 28rpx;
+  line-height: 1.5;
+  box-sizing: border-box;
 }
 
 .companion {
