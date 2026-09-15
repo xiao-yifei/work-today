@@ -11,8 +11,9 @@ export default {
 </script>
 
 <script setup lang="ts">
+import { onHide } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useProfileStore } from '../../stores/profile'
 import type { Profile } from '../../types'
 import { countWorkDaysInMonth, dailySalary, formatMoney, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
@@ -31,6 +32,7 @@ const form = reactive<Profile>({
   goods: profile.value.goods.map((item) => ({ ...item })),
   offDates: [...profile.value.offDates],
   workDates: [...profile.value.workDates],
+  salaryReady: profile.value.salaryReady,
 })
 
 const workDays = computed(() =>
@@ -39,38 +41,20 @@ const workDays = computed(() =>
 
 const preview = computed(() => {
   const total = workSecondsFromTimes(form.startTime, form.endTime, form.lunchStartTime, form.lunchEndTime)
-  const daily = dailySalary(Number(form.monthlySalary) || 0, workDays.value)
+  const daily = dailySalary(Number(salaryText.value) || 0, workDays.value)
   return wagesFromDaily(daily, total)
 })
 
+const salaryText = ref(String(profile.value.monthlySalary))
+
 const invalid = computed(() => {
-  if (!(Number(form.monthlySalary) > 0)) return '请填写有效月薪'
+  if (!(Number(salaryText.value) > 0)) return '请填写有效月薪'
   return scheduleError(form)
 })
 
-function persist() {
-  if (invalid.value) return
-  store.save({
-    monthlySalary: Number(form.monthlySalary),
-    workDaysPerMonth: workDays.value,
-    startTime: form.startTime,
-    endTime: form.endTime,
-    lunchStartTime: form.lunchStartTime,
-    lunchEndTime: form.lunchEndTime,
-    memo: store.profile.memo,
-    goods: form.goods.map((item) => ({
-      ...item,
-      price: Number(item.price) || 1,
-    })),
-    offDates: [...store.profile.offDates],
-    workDates: [...store.profile.workDates],
-  })
-}
+const editing = ref(!profile.value.salaryReady)
 
-watch(form, persist, { deep: true })
-
-function restore() {
-  store.reset()
+function syncFormFromStore() {
   const next = store.profile
   form.monthlySalary = next.monthlySalary
   form.workDaysPerMonth = next.workDaysPerMonth
@@ -81,33 +65,71 @@ function restore() {
   form.goods = next.goods.map((item) => ({ ...item }))
   form.offDates = [...next.offDates]
   form.workDates = [...next.workDates]
+  form.salaryReady = next.salaryReady
+  salaryText.value = String(next.monthlySalary)
 }
+
+function persist() {
+  if (invalid.value) return
+  store.save({
+    monthlySalary: Number(salaryText.value),
+    workDaysPerMonth: workDays.value,
+    startTime: form.startTime,
+    endTime: form.endTime,
+    lunchStartTime: form.lunchStartTime,
+    lunchEndTime: form.lunchEndTime,
+    memo: store.profile.memo,
+    goods: store.profile.goods.map((item) => ({ ...item })),
+    offDates: [...store.profile.offDates],
+    workDates: [...store.profile.workDates],
+    salaryReady: true,
+  })
+}
+
+function finishEdit() {
+  if (invalid.value) return false
+  persist()
+  editing.value = false
+  return true
+}
+
+function toggleEdit() {
+  if (editing.value) {
+    finishEdit()
+    return
+  }
+  syncFormFromStore()
+  editing.value = true
+}
+
+onHide(() => {
+  if (!editing.value) return
+  syncFormFromStore()
+  editing.value = false
+})
 
 function onSalary(e: { detail: { value: string } }) {
-  form.monthlySalary = Number(e.detail.value) || 0
-}
-
-function onCoffee(e: { detail: { value: string } }) {
-  form.goods[0].price = Number(e.detail.value) || 1
-}
-
-function onLunch(e: { detail: { value: string } }) {
-  form.goods[1].price = Number(e.detail.value) || 1
+  if (!editing.value) return
+  salaryText.value = e.detail.value
 }
 
 function onStart(e: { detail: { value: string } }) {
+  if (!editing.value) return
   form.startTime = e.detail.value
 }
 
 function onEnd(e: { detail: { value: string } }) {
+  if (!editing.value) return
   form.endTime = e.detail.value
 }
 
 function onLunchStart(e: { detail: { value: string } }) {
+  if (!editing.value) return
   form.lunchStartTime = e.detail.value
 }
 
 function onLunchEnd(e: { detail: { value: string } }) {
+  if (!editing.value) return
   form.lunchEndTime = e.detail.value
 }
 </script>
@@ -116,21 +138,28 @@ function onLunchEnd(e: { detail: { value: string } }) {
   <view class="page">
     <text class="eyebrow">PROFILE</text>
     <text class="title">工作设置</text>
-    <text class="lead">改完会立刻存到本地。每月上班天数在日历里点，不用在这里填。</text>
+    <text class="lead">要改的话先点编辑，点完成才会存到本地。每月上班天数在日历里点。</text>
 
     <view class="card">
-      <text class="muted">按当前月薪和日历上班天数，时薪约为</text>
-      <text class="big">¥{{ formatMoney(preview.hourly) }}</text>
+      <text class="muted">{{ store.profile.salaryReady || editing ? '按当前月薪和日历上班天数，时薪约为' : '写下月薪后就能看时薪' }}</text>
+      <text class="big">{{ store.profile.salaryReady || editing ? `¥${formatMoney(preview.hourly)}` : '写月薪后就能看' }}</text>
       <text class="muted">本月上班 {{ workDays }} 天，在日历里改</text>
     </view>
 
-    <view class="card form">
+    <view class="card form" :class="{ editing }">
+      <view class="form-head">
+        <text class="form-title">{{ editing ? '点完成存到本地' : '工作参数' }}</text>
+        <view class="edit-btn" @click="toggleEdit">
+          <text>{{ editing ? '完成' : '编辑' }}</text>
+        </view>
+      </view>
       <view class="field">
         <text class="label">月薪（元）</text>
         <view class="input-wrap">
           <input
             type="digit"
-            :value="String(form.monthlySalary)"
+            :value="salaryText"
+            :disabled="!editing"
             :cursor-spacing="32"
             adjust-position
             @input="onSalary"
@@ -140,62 +169,36 @@ function onLunchEnd(e: { detail: { value: string } }) {
       <view class="split">
         <view class="field half">
           <text class="label">上班时间</text>
-          <picker mode="time" :value="form.startTime" @change="onStart">
+          <picker v-if="editing" mode="time" :value="form.startTime" @change="onStart">
             <view class="picker">{{ form.startTime }}</view>
           </picker>
+          <view v-else class="picker">{{ form.startTime }}</view>
         </view>
         <view class="field half">
           <text class="label">下班时间</text>
-          <picker mode="time" :value="form.endTime" @change="onEnd">
+          <picker v-if="editing" mode="time" :value="form.endTime" @change="onEnd">
             <view class="picker">{{ form.endTime }}</view>
           </picker>
+          <view v-else class="picker">{{ form.endTime }}</view>
         </view>
       </view>
       <view class="split">
         <view class="field half">
           <text class="label">午休开始</text>
-          <picker mode="time" :value="form.lunchStartTime" @change="onLunchStart">
+          <picker v-if="editing" mode="time" :value="form.lunchStartTime" @change="onLunchStart">
             <view class="picker">{{ form.lunchStartTime }}</view>
           </picker>
+          <view v-else class="picker">{{ form.lunchStartTime }}</view>
         </view>
         <view class="field half">
           <text class="label">午休结束</text>
-          <picker mode="time" :value="form.lunchEndTime" @change="onLunchEnd">
+          <picker v-if="editing" mode="time" :value="form.lunchEndTime" @change="onLunchEnd">
             <view class="picker">{{ form.lunchEndTime }}</view>
           </picker>
+          <view v-else class="picker">{{ form.lunchEndTime }}</view>
         </view>
       </view>
-      <view class="split">
-        <view class="field half">
-          <text class="label">咖啡单价</text>
-          <view class="input-wrap">
-            <input
-              type="digit"
-              :value="String(form.goods[0].price)"
-              :cursor-spacing="32"
-              adjust-position
-              @input="onCoffee"
-            />
-          </view>
-        </view>
-        <view class="field half">
-          <text class="label">午餐单价</text>
-          <view class="input-wrap">
-            <input
-              type="digit"
-              :value="String(form.goods[1].price)"
-              :cursor-spacing="32"
-              adjust-position
-              @input="onLunch"
-            />
-          </view>
-        </view>
-      </view>
-      <text v-if="invalid" class="error">{{ invalid }}</text>
-      <view class="actions">
-        <button class="primary" :disabled="Boolean(invalid)" @click="persist">保存设置</button>
-        <button class="ghost" @click="restore">恢复默认</button>
-      </view>
+      <text v-if="editing && invalid" class="error">{{ invalid }}</text>
     </view>
   </view>
 </template>
@@ -242,6 +245,31 @@ function onLunchEnd(e: { detail: { value: string } }) {
   font-size: 48rpx;
   font-weight: 700;
   color: #1c1b18;
+}
+
+.form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24rpx;
+}
+
+.form-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1c1b18;
+}
+
+.edit-btn {
+  height: 56rpx;
+  padding: 0 24rpx;
+  border-radius: 28rpx;
+  background: #2b2a26;
+}
+
+.edit-btn text {
+  color: #f6f1e8;
+  font-size: 22rpx;
 }
 
 .field {
@@ -307,34 +335,5 @@ function onLunchEnd(e: { detail: { value: string } }) {
   margin-bottom: 16rpx;
   color: #9a4a32;
   font-size: 24rpx;
-}
-
-.actions {
-  display: flex;
-}
-
-button {
-  margin: 0;
-  border: none;
-  border-radius: 20rpx;
-  font-size: 28rpx;
-  line-height: 88rpx;
-}
-
-button::after {
-  border: none;
-}
-
-.primary {
-  flex: 1;
-  background: #2b2a26;
-  color: #f6f1e8;
-}
-
-.ghost {
-  width: 200rpx;
-  margin-left: 12rpx;
-  background: #efe8db;
-  color: #2b2a26;
 }
 </style>

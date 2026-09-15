@@ -19,7 +19,12 @@ import { WEEKDAY_LABELS, buildMonthDays, formatMoney, isOffDay } from '../../uti
 
 const store = useProfileStore()
 const { now, snapshot } = useWorkDay()
+const salaryReady = computed(() => store.profile.salaryReady)
 const monthLabel = computed(() => `${now.value.getMonth() + 1}月出勤`)
+
+function goMe() {
+  uni.switchTab({ url: '/pages/me/index' })
+}
 const days = computed(() =>
   buildMonthDays(now.value, store.profile.offDates, store.profile.workDates),
 )
@@ -47,11 +52,11 @@ onHide(() => {
     <text class="title">{{ monthLabel }}</text>
     <text class="lead">周末、法定节假日默认休息，调休补班默认上班。要改的话先点编辑。</text>
 
-    <view class="card">
+    <view class="card" @click="!salaryReady && goMe()">
       <text class="muted">本月累计</text>
-      <text class="big">¥{{ formatMoney(snapshot.monthEarned) }}</text>
+      <text class="big">{{ salaryReady ? `¥${formatMoney(snapshot.monthEarned)}` : '写月薪后就能看' }}</text>
       <text class="muted">本月上班 {{ snapshot.workDays }} 天，已上班 {{ snapshot.workedDays }} 天。{{
-        snapshot.status === 'off' ? '今天休息，不计入今日已赚' : `含今日已赚 ¥${formatMoney(snapshot.earned)}`
+        !salaryReady ? '' : snapshot.status === 'off' ? '今天休息，不计入今日已赚' : `含今日已赚 ¥${formatMoney(snapshot.earned)}`
       }}</text>
     </view>
 

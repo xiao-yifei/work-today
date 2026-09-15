@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useProfileStore } from '../stores/profile'
 import type { Profile } from '../types'
 import { countWorkDaysInMonth, dailySalary, formatMoney, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../utils/work'
@@ -36,29 +36,9 @@ const invalid = computed(() => {
   return scheduleError(form)
 })
 
-function persist() {
-  if (invalid.value) return
-  store.save({
-    monthlySalary: Number(form.monthlySalary),
-    workDaysPerMonth: workDays.value,
-    startTime: form.startTime,
-    endTime: form.endTime,
-    lunchStartTime: form.lunchStartTime,
-    lunchEndTime: form.lunchEndTime,
-    memo: form.memo.trim(),
-    goods: form.goods.map((item) => ({
-      ...item,
-      price: Number(item.price) || 1,
-    })),
-    offDates: [...store.profile.offDates],
-    workDates: [...store.profile.workDates],
-  })
-}
+const editing = ref(false)
 
-watch(form, persist, { deep: true })
-
-function restore() {
-  store.reset()
+function syncFormFromStore() {
   const next = store.profile
   form.monthlySalary = next.monthlySalary
   form.workDaysPerMonth = next.workDaysPerMonth
@@ -71,6 +51,39 @@ function restore() {
   form.offDates = [...next.offDates]
   form.workDates = [...next.workDates]
 }
+
+function persist() {
+  if (invalid.value) return
+  store.save({
+    monthlySalary: Number(form.monthlySalary),
+    workDaysPerMonth: workDays.value,
+    startTime: form.startTime,
+    endTime: form.endTime,
+    lunchStartTime: form.lunchStartTime,
+    lunchEndTime: form.lunchEndTime,
+    memo: form.memo.trim(),
+    goods: store.profile.goods.map((item) => ({ ...item })),
+    offDates: [...store.profile.offDates],
+    workDates: [...store.profile.workDates],
+  })
+}
+
+function finishEdit() {
+  if (invalid.value) return false
+  persist()
+  editing.value = false
+  return true
+}
+
+function toggleEdit() {
+  if (editing.value) {
+    finishEdit()
+    return
+  }
+  syncFormFromStore()
+  editing.value = true
+}
+
 </script>
 
 <template>
@@ -78,7 +91,7 @@ function restore() {
     <header>
       <p class="eyebrow">PROFILE</p>
       <h1>工作设置</h1>
-      <p class="lead">改完会立刻存到本地。每月上班天数在日历里点，不用在这里填。</p>
+      <p class="lead">要改的话先点编辑，点完成才会存到本地。每月上班天数在日历里点。</p>
     </header>
 
     <section class="card preview">
@@ -87,50 +100,42 @@ function restore() {
       <p>本月上班 {{ workDays }} 天，在日历里改</p>
     </section>
 
-    <form class="card" @submit.prevent="persist">
+    <form class="card" :class="{ editing }" @submit.prevent="toggleEdit">
+      <div class="form-head">
+        <p>{{ editing ? '点完成存到本地' : '工作参数' }}</p>
+        <button type="button" class="edit-btn" @click="toggleEdit">
+          {{ editing ? '完成' : '编辑' }}
+        </button>
+      </div>
       <label>
         <span>月薪（元）</span>
-        <input v-model.number="form.monthlySalary" type="number" min="1" step="1" inputmode="decimal" />
+        <input v-model.number="form.monthlySalary" type="number" min="1" step="1" inputmode="decimal" :disabled="!editing" />
       </label>
       <div class="split">
         <label>
           <span>上班时间</span>
-          <input v-model="form.startTime" type="time" />
+          <input v-model="form.startTime" type="time" :disabled="!editing" />
         </label>
         <label>
           <span>下班时间</span>
-          <input v-model="form.endTime" type="time" />
+          <input v-model="form.endTime" type="time" :disabled="!editing" />
         </label>
       </div>
       <div class="split">
         <label>
           <span>午休开始</span>
-          <input v-model="form.lunchStartTime" type="time" />
+          <input v-model="form.lunchStartTime" type="time" :disabled="!editing" />
         </label>
         <label>
           <span>午休结束</span>
-          <input v-model="form.lunchEndTime" type="time" />
+          <input v-model="form.lunchEndTime" type="time" :disabled="!editing" />
         </label>
       </div>
       <label>
         <span>今日备忘</span>
-        <textarea v-model="form.memo" rows="3" maxlength="80" placeholder="今天想记住的一件事" />
+        <textarea v-model="form.memo" rows="3" maxlength="80" placeholder="今天想记住的一件事" :disabled="!editing" />
       </label>
-      <div class="split">
-        <label>
-          <span>咖啡单价</span>
-          <input v-model.number="form.goods[0].price" type="number" min="1" step="1" />
-        </label>
-        <label>
-          <span>午餐单价</span>
-          <input v-model.number="form.goods[1].price" type="number" min="1" step="1" />
-        </label>
-      </div>
-      <p v-if="invalid" class="error">{{ invalid }}</p>
-      <div class="actions">
-        <button type="submit" class="primary" :disabled="Boolean(invalid)">保存设置</button>
-        <button type="button" class="ghost" @click="restore">恢复默认</button>
-      </div>
+      <p v-if="editing && invalid" class="error">{{ invalid }}</p>
     </form>
   </main>
 </template>
@@ -193,6 +198,37 @@ form {
   gap: 14px;
 }
 
+.form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.form-head p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1c1b18;
+}
+
+.edit-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: #2b2a26;
+  color: #f6f1e8;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+input:disabled,
+textarea:disabled {
+  opacity: 0.85;
+  color: #3d3b35;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -227,34 +263,5 @@ textarea {
   margin: 0;
   color: #9a4a32;
   font-size: 13px;
-}
-
-.actions {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-button {
-  border: 0;
-  border-radius: 12px;
-  height: 44px;
-  padding: 0 16px;
-  font: inherit;
-  font-weight: 600;
-}
-
-.primary {
-  background: #2b2a26;
-  color: #f6f1e8;
-}
-
-.primary:disabled {
-  opacity: 0.45;
-}
-
-.ghost {
-  background: #efe8db;
-  color: #2b2a26;
 }
 </style>

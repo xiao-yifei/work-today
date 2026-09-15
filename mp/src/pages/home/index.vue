@@ -46,6 +46,7 @@ const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
 const coffeeCount = computed(() => (snapshot.value.earned / store.coffee.price).toFixed(1))
 const lunchCount = computed(() => (snapshot.value.earned / store.lunch.price).toFixed(1))
+const salaryReady = computed(() => store.profile.salaryReady)
 
 const editingMemo = ref(false)
 
@@ -88,9 +89,10 @@ onHide(() => {
         <text class="hero-sub">{{ heroSubtitle(snapshot.status) }}</text>
         <view class="earn">
           <text class="earn-label">今日已赚</text>
-          <text class="earn-value">¥{{ formatMoney(snapshot.earned) }}</text>
-          <text class="month" @click="goTab('/pages/calendar/index')">
-            已上 {{ snapshot.workedDays }} 天 · ¥{{ formatMoney(snapshot.monthEarned) }} ›
+          <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(snapshot.earned) }}</text>
+          <text v-else class="earn-value locked" @click="goTab('/pages/me/index')">写月薪后就能看</text>
+          <text class="month" @click="goTab(salaryReady ? '/pages/calendar/index' : '/pages/me/index')">
+            已上 {{ snapshot.workedDays }} 天{{ salaryReady ? ` · ¥${formatMoney(snapshot.monthEarned)}` : '' }} ›
           </text>
         </view>
       </view>
@@ -115,7 +117,7 @@ onHide(() => {
       <text class="lunch-meta">午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时</text>
     </view>
 
-    <view class="card wage">
+    <view v-if="salaryReady" class="card wage">
       <view class="wage-item">
         <text class="wage-num">¥ {{ formatWage(snapshot.wage.hourly) }}</text>
         <text class="wage-label">每小时工资</text>
@@ -129,14 +131,19 @@ onHide(() => {
         <text class="wage-label">每秒工资</text>
       </view>
     </view>
+    <view v-else class="card locked-card" @click="goTab('/pages/me/index')">
+      <text class="card-title">时薪</text>
+      <text class="locked-text">写月薪后就能看</text>
+    </view>
 
     <view class="card">
       <view class="card-head">
         <text class="card-title">今日购买力</text>
-        <text class="card-extra" @click="goTab('/pages/calc/index')">全部换算 ›</text>
+        <text v-if="salaryReady" class="card-extra" @click="goTab('/pages/calc/index')">全部换算 ›</text>
       </view>
-      <text class="hint">把今天的努力，换成生活里的小确幸</text>
-      <view class="goods">
+      <text v-if="salaryReady" class="hint">把今天的努力，换成生活里的小确幸</text>
+      <text v-else class="hint locked-text" @click="goTab('/pages/me/index')">写月薪后就能看</text>
+      <view v-if="salaryReady" class="goods">
         <view class="good">
           <view class="good-icon">
             <text>咖</text>
@@ -281,6 +288,22 @@ onHide(() => {
   color: #f6f1e8;
   font-size: 52rpx;
   font-weight: 700;
+}
+
+.earn-value.locked {
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.locked-card {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.locked-text {
+  color: #7c6246;
+  font-size: 26rpx;
 }
 
 .month {

@@ -10,6 +10,8 @@ export const defaultGoods: GoodsItem[] = [
   { id: 'lunch', name: '午餐', price: 35, unit: '份' },
 ]
 
+const DEMO_MEMO = '今天要汇报王总的方案'
+
 export const defaultProfile: Profile = {
   monthlySalary: 12223,
   workDaysPerMonth: 22,
@@ -17,24 +19,35 @@ export const defaultProfile: Profile = {
   endTime: '19:00',
   lunchStartTime: '12:00',
   lunchEndTime: '13:00',
-  memo: '今天要汇报王总的方案',
+  memo: '',
   goods: defaultGoods,
   offDates: [],
   workDates: [],
+  salaryReady: false,
 }
 
 function emptyProfile(): Profile {
   return { ...defaultProfile, goods: defaultGoods.map((item) => ({ ...item })) }
 }
 
+function inferSalaryReady(parsed: Partial<Profile> & { setupDone?: boolean }): boolean {
+  if (parsed.salaryReady === true || parsed.setupDone === true) return true
+  if (parsed.salaryReady === false) return false
+  return (parsed.monthlySalary ?? defaultProfile.monthlySalary) !== defaultProfile.monthlySalary
+}
+
 function loadProfile(): Profile {
   try {
     const raw = uni.getStorageSync(STORAGE_KEY) as string | Partial<Profile> | ''
     if (!raw) return emptyProfile()
-    const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Partial<Profile>
+    const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Partial<Profile> & { setupDone?: boolean }
+    const salaryReady = inferSalaryReady(parsed)
+    const memo = typeof parsed.memo === 'string' ? parsed.memo : ''
     return {
       ...defaultProfile,
       ...parsed,
+      memo: !salaryReady && memo === DEMO_MEMO ? '' : memo,
+      salaryReady,
       goods:
         parsed.goods?.length === 2
           ? parsed.goods.map((item, index) => ({ ...defaultGoods[index], ...item }))
@@ -71,6 +84,7 @@ export const useProfileStore = defineStore('profile', () => {
       goods: next.goods.map((item) => ({ ...item })),
       offDates: Array.isArray(next.offDates) ? [...next.offDates] : [...profile.value.offDates],
       workDates: Array.isArray(next.workDates) ? [...next.workDates] : [...profile.value.workDates],
+      salaryReady: next.salaryReady,
     }
   }
 

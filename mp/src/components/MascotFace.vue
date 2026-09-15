@@ -4,6 +4,8 @@
     <view class="leaf" />
     <view class="eye left" />
     <view class="eye right" />
+    <view class="blush left" />
+    <view class="blush right" />
   </view>
 </template>
 
@@ -46,11 +48,29 @@
   background: #2b2a26;
 }
 
-.left {
+.eye.left {
   left: 15px;
 }
 
-.right {
+.eye.right {
   right: 15px;
+}
+
+.blush {
+  position: absolute;
+  top: 28px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f0c6b4;
+  opacity: 0.7;
+}
+
+.blush.left {
+  left: 8px;
+}
+
+.blush.right {
+  right: 8px;
 }
 </style>

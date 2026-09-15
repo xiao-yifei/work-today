@@ -5,6 +5,8 @@
     <view class="head">
       <view class="eye left" />
       <view class="eye right" />
+      <view class="blush left" />
+      <view class="blush right" />
     </view>
     <view class="desk" />
   </view>
@@ -56,12 +58,30 @@
   background: #2b2a26;
 }
 
-.left {
+.eye.left {
   left: 20px;
 }
 
-.right {
+.eye.right {
   right: 20px;
+}
+
+.blush {
+  position: absolute;
+  top: 36px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f0c6b4;
+  opacity: 0.7;
+}
+
+.blush.left {
+  left: 10px;
+}
+
+.blush.right {
+  right: 10px;
 }
 
 .desk {

@@ -18,4 +18,5 @@ export interface Profile {
   goods: GoodsItem[]
   offDates: string[]
   workDates: string[]
+  salaryReady: boolean
 }
