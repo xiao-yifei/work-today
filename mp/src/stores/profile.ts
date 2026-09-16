@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import type { GoodsItem, Profile } from '../types'
-import { dateKey, isOfficialOffDay } from '../utils/work'
+import type { FixedCost, GoodsItem, OwnedItem, Profile, WeekendRule } from '../types'
+import { dateKey, isOfficialOffDay, normalizeWeekendRule, restScheduleFrom } from '../utils/work'
 
 const STORAGE_KEY = 'work-today-profile-v1'
 
@@ -21,13 +21,61 @@ export const defaultProfile: Profile = {
   lunchEndTime: '13:00',
   memo: '',
   goods: defaultGoods,
+  belongings: [],
+  fixedCosts: [],
   offDates: [],
   workDates: [],
+  weekendRule: 'double',
+  bigWeekAnchor: '',
   salaryReady: false,
 }
 
+const MAX_BELONGINGS = 5
+const MAX_FIXED_COSTS = 5
+
+function cloneNamedAmounts<T extends OwnedItem | FixedCost>(items: T[] = [], max: number): T[] {
+  return items.slice(0, max).map((item) => ({ ...item }))
+}
+
+function normalizeNamedAmounts<T extends OwnedItem | FixedCost>(raw: unknown, max: number): T[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((item): item is T => {
+      if (!item || typeof item !== 'object') return false
+      const next = item as Partial<T>
+      return typeof next.id === 'string' && typeof next.name === 'string' && Number(next.price) >= 0
+    })
+    .slice(0, max)
+    .map((item) => ({
+      id: item.id,
+      name: item.name.trim().slice(0, 16),
+      price: Number(item.price) || 0,
+    })) as T[]
+}
+
+function cloneBelongings(items: OwnedItem[] = []): OwnedItem[] {
+  return cloneNamedAmounts(items, MAX_BELONGINGS)
+}
+
+function normalizeBelongings(raw: unknown): OwnedItem[] {
+  return normalizeNamedAmounts<OwnedItem>(raw, MAX_BELONGINGS)
+}
+
+function cloneFixedCosts(items: FixedCost[] = []): FixedCost[] {
+  return cloneNamedAmounts(items, MAX_FIXED_COSTS)
+}
+
+function normalizeFixedCosts(raw: unknown): FixedCost[] {
+  return normalizeNamedAmounts<FixedCost>(raw, MAX_FIXED_COSTS)
+}
+
 function emptyProfile(): Profile {
-  return { ...defaultProfile, goods: defaultGoods.map((item) => ({ ...item })) }
+  return {
+    ...defaultProfile,
+    goods: defaultGoods.map((item) => ({ ...item })),
+    belongings: [],
+    fixedCosts: [],
+  }
 }
 
 function inferSalaryReady(parsed: Partial<Profile> & { setupDone?: boolean }): boolean {
@@ -58,6 +106,10 @@ function loadProfile(): Profile {
       workDates: Array.isArray(parsed.workDates)
         ? parsed.workDates.filter((item): item is string => typeof item === 'string')
         : [],
+      belongings: normalizeBelongings(parsed.belongings),
+      fixedCosts: normalizeFixedCosts(parsed.fixedCosts),
+      weekendRule: normalizeWeekendRule(parsed.weekendRule),
+      bigWeekAnchor: typeof parsed.bigWeekAnchor === 'string' ? parsed.bigWeekAnchor : '',
     }
   } catch {
     return emptyProfile()
@@ -84,7 +136,32 @@ export const useProfileStore = defineStore('profile', () => {
       goods: next.goods.map((item) => ({ ...item })),
       offDates: Array.isArray(next.offDates) ? [...next.offDates] : [...profile.value.offDates],
       workDates: Array.isArray(next.workDates) ? [...next.workDates] : [...profile.value.workDates],
+      belongings: cloneBelongings(next.belongings ?? profile.value.belongings),
+      fixedCosts: cloneFixedCosts(next.fixedCosts ?? profile.value.fixedCosts),
+      weekendRule: normalizeWeekendRule(next.weekendRule ?? profile.value.weekendRule),
+      bigWeekAnchor: typeof next.bigWeekAnchor === 'string' ? next.bigWeekAnchor : profile.value.bigWeekAnchor,
       salaryReady: next.salaryReady,
+    }
+  }
+
+  function setWeekendRule(rule: WeekendRule, now = new Date()) {
+    const weekendRule = normalizeWeekendRule(rule)
+    const bigWeekAnchor =
+      weekendRule === 'bigSmall'
+        ? profile.value.weekendRule === 'bigSmall' && profile.value.bigWeekAnchor
+          ? profile.value.bigWeekAnchor
+          : dateKey(now)
+        : profile.value.bigWeekAnchor
+    profile.value = { ...profile.value, weekendRule, bigWeekAnchor }
+  }
+
+  function setThisWeekBig(isBig: boolean, now = new Date()) {
+    const anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    if (!isBig) anchor.setDate(anchor.getDate() + 7)
+    profile.value = {
+      ...profile.value,
+      weekendRule: 'bigSmall',
+      bigWeekAnchor: dateKey(anchor),
     }
   }
 
@@ -98,7 +175,7 @@ export const useProfileStore = defineStore('profile', () => {
     const workDates = new Set(profile.value.workDates)
     offDates.delete(key)
     workDates.delete(key)
-    if (off !== isOfficialOffDay(date)) {
+    if (off !== isOfficialOffDay(date, restScheduleFrom(profile.value))) {
       if (off) offDates.add(key)
       else workDates.add(key)
     }
@@ -113,10 +190,12 @@ export const useProfileStore = defineStore('profile', () => {
     save({
       ...defaultProfile,
       goods: defaultGoods.map((item) => ({ ...item })),
+      belongings: [],
+      fixedCosts: [],
       offDates: [],
       workDates: [],
     })
   }
 
-  return { profile, coffee, lunch, save, setMemo, setDateOff, reset }
+  return { profile, coffee, lunch, save, setMemo, setDateOff, setWeekendRule, setThisWeekBig, reset }
 })

@@ -3,7 +3,7 @@ import { storeToRefs } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import { useProfileStore } from '../stores/profile'
 import type { Profile } from '../types'
-import { countWorkDaysInMonth, dailySalary, formatMoney, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../utils/work'
+import { countWorkDaysInMonth, dailySalary, formatMoney, restScheduleFrom, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../utils/work'
 
 const store = useProfileStore()
 const { profile } = storeToRefs(store)
@@ -17,12 +17,15 @@ const form = reactive<Profile>({
   lunchEndTime: profile.value.lunchEndTime,
   memo: profile.value.memo,
   goods: profile.value.goods.map((item) => ({ ...item })),
+  fixedCosts: profile.value.fixedCosts.map((item) => ({ ...item })),
   offDates: [...profile.value.offDates],
   workDates: [...profile.value.workDates],
+  weekendRule: profile.value.weekendRule,
+  bigWeekAnchor: profile.value.bigWeekAnchor,
 })
 
 const workDays = computed(() =>
-  countWorkDaysInMonth(new Date(), store.profile.offDates, store.profile.workDates),
+  countWorkDaysInMonth(new Date(), store.profile.offDates, store.profile.workDates, restScheduleFrom(store.profile)),
 )
 
 const preview = computed(() => {
@@ -48,8 +51,11 @@ function syncFormFromStore() {
   form.lunchEndTime = next.lunchEndTime
   form.memo = next.memo
   form.goods = next.goods.map((item) => ({ ...item }))
+  form.fixedCosts = next.fixedCosts.map((item) => ({ ...item }))
   form.offDates = [...next.offDates]
   form.workDates = [...next.workDates]
+  form.weekendRule = next.weekendRule
+  form.bigWeekAnchor = next.bigWeekAnchor
 }
 
 function persist() {
@@ -63,8 +69,11 @@ function persist() {
     lunchEndTime: form.lunchEndTime,
     memo: form.memo.trim(),
     goods: store.profile.goods.map((item) => ({ ...item })),
+    fixedCosts: store.profile.fixedCosts.map((item) => ({ ...item })),
     offDates: [...store.profile.offDates],
     workDates: [...store.profile.workDates],
+    weekendRule: store.profile.weekendRule,
+    bigWeekAnchor: store.profile.bigWeekAnchor,
   })
 }
 
@@ -91,7 +100,7 @@ function toggleEdit() {
     <header>
       <p class="eyebrow">PROFILE</p>
       <h1>工作设置</h1>
-      <p class="lead">要改的话先点编辑，点完成才会存到本地。每月上班天数在日历里点。</p>
+      <p class="lead">要改的话先点编辑，点完成才会存到本地。休息日和上班天数在日历里改。</p>
     </header>
 
     <section class="card preview">

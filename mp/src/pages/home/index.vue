@@ -27,6 +27,7 @@ import {
     heroSubtitle,
     heroTitle,
     statusLabel,
+    summarizeFixedCosts,
 } from '../../utils/work'
 
 const store = useProfileStore()
@@ -47,6 +48,28 @@ const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
 const coffeeCount = computed(() => (snapshot.value.earned / store.coffee.price).toFixed(1))
 const lunchCount = computed(() => (snapshot.value.earned / store.lunch.price).toFixed(1))
 const salaryReady = computed(() => store.profile.salaryReady)
+const costSummary = computed(() =>
+  summarizeFixedCosts(
+    store.profile.fixedCosts,
+    snapshot.value.workDays,
+    snapshot.value.earned,
+    snapshot.value.status,
+  ),
+)
+
+function workTimeLabel(amount: number): string {
+  const seconds = amount / Math.max(snapshot.value.wage.second, 1e-9)
+  if (seconds < 60) return '不到1分钟'
+  return formatDuration(seconds)
+}
+
+const costCover = computed(() => {
+  const next = costSummary.value
+  if (!salaryReady.value || !next.hasCosts) return ''
+  if (next.rest) return '今天休息，不算进上班日'
+  if (next.covered) return '今天的固定支出已覆盖'
+  return `还差 ¥${formatMoney(next.gap)} · 还要上班 ${workTimeLabel(next.gap)}`
+})
 
 const editingMemo = ref(false)
 
@@ -163,6 +186,25 @@ onHide(() => {
           </view>
         </view>
       </view>
+    </view>
+
+    <view v-if="costSummary.hasCosts" class="card" @click="goTab('/pages/calc/index')">
+      <view class="card-head">
+        <text class="card-title">今日固定支出</text>
+        <text class="card-extra">去换算 ›</text>
+      </view>
+      <view class="cost-row">
+        <view>
+          <text class="muted">每个上班日</text>
+          <text class="cost-num">¥{{ formatMoney(costSummary.daily) }}</text>
+        </view>
+        <view v-if="salaryReady && costSummary.covered && !costSummary.rest" class="cost-net">
+          <text class="muted">净赚</text>
+          <text class="cost-num">¥{{ formatMoney(costSummary.net) }}</text>
+        </view>
+      </view>
+      <text v-if="salaryReady && costCover" class="hint cost-hint">{{ costCover }}</text>
+      <text v-else-if="!salaryReady" class="hint locked-text">写月薪后就能看覆盖进度</text>
     </view>
 
     <view class="card">
@@ -402,6 +444,35 @@ onHide(() => {
   margin: 12rpx 0 20rpx;
   font-size: 22rpx;
   color: #9a9488;
+}
+
+.cost-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-top: 16rpx;
+}
+
+.cost-net {
+  text-align: right;
+}
+
+.cost-num {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #1c1b18;
+}
+
+.cost-hint {
+  margin-bottom: 0;
+}
+
+.muted {
+  display: block;
+  font-size: 22rpx;
+  color: #8a8478;
 }
 
 .goods {

@@ -14,6 +14,7 @@ import {
     heroSubtitle,
     heroTitle,
     statusLabel,
+    summarizeFixedCosts,
 } from '../utils/work'
 
 const store = useProfileStore()
@@ -32,6 +33,28 @@ const workedLabel = computed(() =>
 const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const coffeeCount = computed(() => snapshot.value.earned / store.coffee.price)
 const lunchCount = computed(() => snapshot.value.earned / store.lunch.price)
+const costSummary = computed(() =>
+  summarizeFixedCosts(
+    store.profile.fixedCosts,
+    snapshot.value.workDays,
+    snapshot.value.earned,
+    snapshot.value.status,
+  ),
+)
+
+function workTimeLabel(amount: number): string {
+  const seconds = amount / Math.max(snapshot.value.wage.second, 1e-9)
+  if (seconds < 60) return '不到1分钟'
+  return formatDuration(seconds)
+}
+
+const costCover = computed(() => {
+  const next = costSummary.value
+  if (!next.hasCosts) return ''
+  if (next.rest) return '今天休息，不算进上班日'
+  if (next.covered) return '今天的固定支出已覆盖'
+  return `还差 ¥${formatMoney(next.gap)} · 还要上班 ${workTimeLabel(next.gap)}`
+})
 </script>
 
 <template>
@@ -133,6 +156,24 @@ const lunchCount = computed(() => snapshot.value.earned / store.lunch.price)
         </article>
       </div>
     </section>
+
+    <router-link v-if="costSummary.hasCosts" class="card cost" to="/calc">
+      <div class="card-head">
+        <h2>今日固定支出</h2>
+        <span>去换算 ›</span>
+      </div>
+      <div class="cost-row">
+        <div>
+          <small>每个上班日</small>
+          <strong>¥{{ formatMoney(costSummary.daily) }}</strong>
+        </div>
+        <div v-if="costSummary.covered && !costSummary.rest">
+          <small>净赚</small>
+          <strong>¥{{ formatMoney(costSummary.net) }}</strong>
+        </div>
+      </div>
+      <p v-if="costCover" class="hint">{{ costCover }}</p>
+    </router-link>
 
     <router-link class="card memo" to="/me">
       <p>· {{ store.profile.memo || '今天还没有备忘' }}</p>
@@ -362,6 +403,39 @@ h1 {
   margin: 8px 0 12px;
   font-size: 12px;
   color: #9a9488;
+}
+
+.cost {
+  text-decoration: none;
+}
+
+.cost .card-head span {
+  color: #7c6246;
+  font-weight: 600;
+}
+
+.cost-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: 10px;
+}
+
+.cost-row small {
+  display: block;
+  color: #8a8478;
+  font-size: 12px;
+}
+
+.cost-row strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  color: #1c1b18;
+}
+
+.cost .hint {
+  margin-bottom: 0;
 }
 
 .goods {

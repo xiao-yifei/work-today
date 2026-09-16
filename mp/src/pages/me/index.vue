@@ -16,7 +16,7 @@ import { storeToRefs } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import { useProfileStore } from '../../stores/profile'
 import type { Profile } from '../../types'
-import { countWorkDaysInMonth, dailySalary, formatMoney, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
+import { countWorkDaysInMonth, dailySalary, formatMoney, restScheduleFrom, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
 
 const store = useProfileStore()
 const { profile } = storeToRefs(store)
@@ -30,13 +30,17 @@ const form = reactive<Profile>({
   lunchEndTime: profile.value.lunchEndTime,
   memo: profile.value.memo,
   goods: profile.value.goods.map((item) => ({ ...item })),
+  belongings: profile.value.belongings.map((item) => ({ ...item })),
+  fixedCosts: profile.value.fixedCosts.map((item) => ({ ...item })),
   offDates: [...profile.value.offDates],
   workDates: [...profile.value.workDates],
+  weekendRule: profile.value.weekendRule,
+  bigWeekAnchor: profile.value.bigWeekAnchor,
   salaryReady: profile.value.salaryReady,
 })
 
 const workDays = computed(() =>
-  countWorkDaysInMonth(new Date(), store.profile.offDates, store.profile.workDates),
+  countWorkDaysInMonth(new Date(), store.profile.offDates, store.profile.workDates, restScheduleFrom(store.profile)),
 )
 
 const preview = computed(() => {
@@ -63,8 +67,12 @@ function syncFormFromStore() {
   form.lunchStartTime = next.lunchStartTime
   form.lunchEndTime = next.lunchEndTime
   form.goods = next.goods.map((item) => ({ ...item }))
+  form.belongings = next.belongings.map((item) => ({ ...item }))
+  form.fixedCosts = next.fixedCosts.map((item) => ({ ...item }))
   form.offDates = [...next.offDates]
   form.workDates = [...next.workDates]
+  form.weekendRule = next.weekendRule
+  form.bigWeekAnchor = next.bigWeekAnchor
   form.salaryReady = next.salaryReady
   salaryText.value = String(next.monthlySalary)
 }
@@ -80,8 +88,12 @@ function persist() {
     lunchEndTime: form.lunchEndTime,
     memo: store.profile.memo,
     goods: store.profile.goods.map((item) => ({ ...item })),
+    belongings: store.profile.belongings.map((item) => ({ ...item })),
+    fixedCosts: store.profile.fixedCosts.map((item) => ({ ...item })),
     offDates: [...store.profile.offDates],
     workDates: [...store.profile.workDates],
+    weekendRule: store.profile.weekendRule,
+    bigWeekAnchor: store.profile.bigWeekAnchor,
     salaryReady: true,
   })
 }
@@ -138,7 +150,7 @@ function onLunchEnd(e: { detail: { value: string } }) {
   <view class="page">
     <text class="eyebrow">PROFILE</text>
     <text class="title">工作设置</text>
-    <text class="lead">要改的话先点编辑，点完成才会存到本地。每月上班天数在日历里点。</text>
+    <text class="lead">要改的话先点编辑，点完成才会存到本地。休息日和上班天数在日历里改。</text>
 
     <view class="card">
       <text class="muted">{{ store.profile.salaryReady || editing ? '按当前月薪和日历上班天数，时薪约为' : '写下月薪后就能看时薪' }}</text>
@@ -200,6 +212,8 @@ function onLunchEnd(e: { detail: { value: string } }) {
       </view>
       <text v-if="editing && invalid" class="error">{{ invalid }}</text>
     </view>
+
+    <text class="privacy">小荧提示：你的信息只收在本地哦，谁问我也不说。</text>
   </view>
 </template>
 
@@ -229,6 +243,14 @@ function onLunchEnd(e: { detail: { value: string } }) {
   margin-top: 12rpx;
   font-size: 24rpx;
   color: #8a8478;
+  line-height: 1.6;
+}
+
+.privacy {
+  display: block;
+  margin-top: 32rpx;
+  font-size: 22rpx;
+  color: #9a9488;
   line-height: 1.6;
 }
 

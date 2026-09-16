@@ -2,22 +2,43 @@
 import { computed, ref } from 'vue'
 import { useWorkDay } from '../composables/useWorkDay'
 import { useProfileStore } from '../stores/profile'
-import { WEEKDAY_LABELS, buildMonthDays, formatMoney, isOffDay } from '../utils/work'
+import type { WeekendRule } from '../types'
+import {
+    WEEKDAY_LABELS,
+    WEEKEND_RULES,
+    buildMonthDays,
+    formatMoney,
+    isBigWeek,
+    isOffDay,
+    restScheduleFrom,
+    weekendRuleLabel,
+} from '../utils/work'
 
 const store = useProfileStore()
 const { now, snapshot } = useWorkDay()
 
 const monthLabel = computed(() => `${now.value.getMonth() + 1}月出勤`)
+const schedule = computed(() => restScheduleFrom(store.profile))
+const ruleLabel = computed(() => weekendRuleLabel(store.profile.weekendRule))
+const thisWeekBig = computed(() => isBigWeek(now.value, store.profile.bigWeekAnchor))
 const days = computed(() =>
-  buildMonthDays(now.value, store.profile.offDates, store.profile.workDates),
+  buildMonthDays(now.value, store.profile.offDates, store.profile.workDates, schedule.value),
 )
 
 const editing = ref(false)
 
+function pickRule(rule: WeekendRule) {
+  store.setWeekendRule(rule, now.value)
+}
+
+function pickThisWeek(isBig: boolean) {
+  store.setThisWeekBig(isBig, now.value)
+}
+
 function toggleDay(day: number) {
   if (!editing.value) return
   const date = new Date(now.value.getFullYear(), now.value.getMonth(), day)
-  store.setDateOff(date, !isOffDay(date, store.profile.offDates, store.profile.workDates))
+  store.setDateOff(date, !isOffDay(date, store.profile.offDates, store.profile.workDates, schedule.value))
 }
 </script>
 
@@ -26,7 +47,7 @@ function toggleDay(day: number) {
     <header>
       <p class="eyebrow">CALENDAR</p>
       <h1>{{ monthLabel }}</h1>
-      <p class="lead">周末、法定节假日默认休息，调休补班默认上班。要改的话先点编辑。</p>
+      <p class="lead">假日、调休按国务院。要改制度或某一天，先点编辑。</p>
     </header>
 
     <section class="card">
@@ -39,10 +60,26 @@ function toggleDay(day: number) {
 
     <section class="card calendar" :class="{ editing }">
       <div class="cal-head">
-        <p>{{ editing ? '点日期改休息或上班' : '本月日历' }}</p>
+        <p>{{ editing ? '选制度，或点日期改一天' : `本月日历 · ${ruleLabel}` }}</p>
         <button type="button" class="edit-btn" @click="editing = !editing">
           {{ editing ? '完成' : '编辑' }}
         </button>
+      </div>
+      <div v-if="editing" class="rules">
+        <button
+          v-for="item in WEEKEND_RULES"
+          :key="item.id"
+          type="button"
+          class="chip"
+          :class="{ on: store.profile.weekendRule === item.id }"
+          @click="pickRule(item.id)"
+        >
+          {{ item.label }}
+        </button>
+      </div>
+      <div v-if="editing && store.profile.weekendRule === 'bigSmall'" class="rules phase">
+        <button type="button" class="chip" :class="{ on: thisWeekBig }" @click="pickThisWeek(true)">本周大周</button>
+        <button type="button" class="chip" :class="{ on: !thisWeekBig }" @click="pickThisWeek(false)">本周小周</button>
       </div>
       <div class="week">
         <span v-for="label in WEEKDAY_LABELS" :key="label">{{ label }}</span>
@@ -146,6 +183,32 @@ h1 {
   background: #2b2a26;
   color: #f6f1e8;
   font-size: 12px;
+}
+
+.rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.rules.phase {
+  margin-top: -4px;
+}
+
+.chip {
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: #f7f3eb;
+  color: #6d675c;
+  font-size: 12px;
+}
+
+.chip.on {
+  background: #2b2a26;
+  color: #f6f1e8;
 }
 
 .week,

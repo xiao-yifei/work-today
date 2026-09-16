@@ -1,4 +1,4 @@
-import type { Profile, WorkStatus } from '../types';
+import type { Profile, WeekendRule, WeekendSchedule, WorkStatus } from '../types';
 import { isDefaultOffDay, isHolidayOff, isHolidayWork } from './holidays';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
@@ -98,12 +98,109 @@ export function formatDuration(totalSeconds: number): string {
   return `${hours}小时${minutes}分钟`
 }
 
+function formatSpanParts(months: number, remDays: number): string {
+  if (months <= 0) {
+    if (remDays < 1) return '不到 1 天'
+    if (remDays < 10) return `${remDays.toFixed(1)} 天`
+    return `${Math.round(remDays)} 天`
+  }
+  if (months < 12) {
+    if (remDays < 1) return `${months} 个月`
+    return `${months} 个月 ${Math.round(remDays)} 天`
+  }
+  const years = Math.floor(months / 12)
+  const remMonths = months % 12
+  if (remMonths <= 0) return `${years} 年`
+  return `${years} 年 ${remMonths} 个月`
+}
+
+function walkWorkSpan(
+  workDaysNeeded: number,
+  from: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+): { months: number; remDays: number } {
+  const thisMonthDays = countWorkDaysInMonth(from, offDates, workDates, schedule)
+  if (workDaysNeeded < thisMonthDays) {
+    return { months: 0, remDays: workDaysNeeded }
+  }
+
+  let remaining = workDaysNeeded
+  let months = 0
+  const cursor = new Date(from.getFullYear(), from.getMonth(), 1)
+  const limit = 12 * 80
+
+  while (remaining > 0 && months < limit) {
+    const daysInMonth = countWorkDaysInMonth(cursor, offDates, workDates, schedule)
+    if (daysInMonth > 0 && remaining <= daysInMonth) {
+      const remDays = Math.round(remaining)
+      if (remDays >= daysInMonth) return { months: months + 1, remDays: 0 }
+      return { months, remDays }
+    }
+    remaining -= daysInMonth
+    months += 1
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+
+  return { months, remDays: 0 }
+}
+
+/** 按日历里每个月的实际上班天数，把要上的班换成天 / 月 / 年。 */
+export function resolveWorkSpan(
+  workDaysNeeded: number,
+  from: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+): { label: string; hint: string } {
+  if (!(workDaysNeeded >= 1)) return { label: '不到 1 天', hint: '' }
+  const { months, remDays } = walkWorkSpan(workDaysNeeded, from, offDates, workDates, schedule)
+  const label = formatSpanParts(months, remDays)
+  const hint = months > 0 ? `约 ${Math.round(workDaysNeeded)} 天` : ''
+  return { label, hint }
+}
+
+export function formatWorkSpan(
+  workDaysNeeded: number,
+  from: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+): string {
+  return resolveWorkSpan(workDaysNeeded, from, offDates, workDates, schedule).label
+}
+
 export function formatDateLabel(date: Date): string {
   return `${date.getMonth() + 1}月${date.getDate()}日 · ${WEEKDAYS[date.getDay()]}`
 }
 
 export function dailySalary(monthlySalary: number, workDaysPerMonth: number): number {
   return monthlySalary / Math.max(1, workDaysPerMonth)
+}
+
+export function dailyFixedShare(monthlyTotal: number, workDays: number): number {
+  if (!(workDays > 0)) return 0
+  return Math.max(0, monthlyTotal) / workDays
+}
+
+export function summarizeFixedCosts(
+  items: Array<{ price?: number }>,
+  workDays: number,
+  earned: number,
+  status: WorkStatus,
+) {
+  const monthly = items.reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0), 0)
+  const daily = dailyFixedShare(monthly, workDays)
+  return {
+    monthly,
+    daily,
+    hasCosts: monthly > 0,
+    net: earned - daily,
+    gap: Math.max(0, daily - earned),
+    covered: daily > 0 && earned >= daily,
+    rest: status === 'off',
+  }
 }
 
 export function wagesFromDaily(daily: number, totalDaySeconds: number) {
@@ -122,21 +219,84 @@ export function dateKey(date: Date): string {
   return `${year}-${month}-${day}`
 }
 
+export const WEEKEND_RULES: { id: WeekendRule; label: string }[] = [
+  { id: 'double', label: '双休' },
+  { id: 'offSat', label: '休周六' },
+  { id: 'offSun', label: '休周日' },
+  { id: 'bigSmall', label: '大小周' },
+]
+
+export function normalizeWeekendRule(raw: unknown): WeekendRule {
+  if (raw === 'offSat' || raw === 'offSun' || raw === 'bigSmall') return raw
+  return 'double'
+}
+
+export function weekendRuleLabel(rule: WeekendRule): string {
+  return WEEKEND_RULES.find((item) => item.id === rule)?.label ?? '双休'
+}
+
+export function restScheduleFrom(
+  profile?: Pick<Profile, 'weekendRule' | 'bigWeekAnchor'>,
+): WeekendSchedule {
+  return {
+    weekendRule: normalizeWeekendRule(profile?.weekendRule),
+    bigWeekAnchor: typeof profile?.bigWeekAnchor === 'string' ? profile.bigWeekAnchor : '',
+  }
+}
+
+function parseDateKey(value?: string): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+export function mondayOf(date: Date): Date {
+  const next = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const dow = next.getDay()
+  next.setDate(next.getDate() + (dow === 0 ? -6 : 1 - dow))
+  return next
+}
+
+function mondayIndex(date: Date): number {
+  const monday = mondayOf(date)
+  return Math.round(Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()) / 604800000)
+}
+
+export function isBigWeek(date: Date, bigWeekAnchor?: string): boolean {
+  const anchor = parseDateKey(bigWeekAnchor)
+  if (!anchor) return true
+  return mondayIndex(date) % 2 === mondayIndex(anchor) % 2
+}
+
+export function isScheduleOffDay(date: Date, schedule: WeekendSchedule = {}): boolean {
+  const rule = normalizeWeekendRule(schedule.weekendRule)
+  const dow = date.getDay()
+  if (rule === 'offSat') return dow === 6
+  if (rule === 'offSun') return dow === 0
+  if (rule === 'bigSmall') return isBigWeek(date, schedule.bigWeekAnchor) ? dow === 0 : dow === 0 || dow === 6
+  return dow === 0 || dow === 6
+}
+
 export function isWeekday(date: Date): boolean {
   const day = date.getDay()
   return day !== 0 && day !== 6
 }
 
-export function isOfficialOffDay(date: Date): boolean {
+export function isOfficialOffDay(date: Date, schedule: WeekendSchedule = {}): boolean {
   const key = dateKey(date)
-  return isDefaultOffDay(date, key, !isWeekday(date))
+  return isDefaultOffDay(date, key, isScheduleOffDay(date, schedule))
 }
 
-export function isOffDay(date: Date, offDates: string[] = [], workDates: string[] = []): boolean {
+export function isOffDay(
+  date: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+): boolean {
   const key = dateKey(date)
   if (workDates.includes(key)) return false
   if (offDates.includes(key)) return true
-  return isDefaultOffDay(date, key, !isWeekday(date))
+  return isOfficialOffDay(date, schedule)
 }
 
 export const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
@@ -155,6 +315,7 @@ export function buildMonthDays(
   now: Date,
   offDates: string[] = [],
   workDates: string[] = [],
+  schedule: WeekendSchedule = {},
 ): Array<MonthDay | null> {
   const year = now.getFullYear()
   const month = now.getMonth()
@@ -169,8 +330,8 @@ export function buildMonthDays(
       key,
       day,
       isToday: key === today,
-      isWeekend: !isWeekday(date),
-      isOff: isOffDay(date, offDates, workDates),
+      isWeekend: isScheduleOffDay(date, schedule),
+      isOff: isOffDay(date, offDates, workDates, schedule),
       isHoliday: isHolidayOff(key),
       isMakeup: isHolidayWork(key),
     })
@@ -182,6 +343,7 @@ export function countWeekdaysUntilYesterday(
   now: Date,
   offDates: string[] = [],
   workDates: string[] = [],
+  schedule: WeekendSchedule = {},
 ): number {
   const year = now.getFullYear()
   const month = now.getMonth()
@@ -189,7 +351,7 @@ export function countWeekdaysUntilYesterday(
   let count = 0
   for (let day = 1; day < today; day += 1) {
     const date = new Date(year, month, day)
-    if (!isOffDay(date, offDates, workDates)) count += 1
+    if (!isOffDay(date, offDates, workDates, schedule)) count += 1
   }
   return count
 }
@@ -198,13 +360,14 @@ export function countWorkDaysInMonth(
   now: Date,
   offDates: string[] = [],
   workDates: string[] = [],
+  schedule: WeekendSchedule = {},
 ): number {
   const year = now.getFullYear()
   const month = now.getMonth()
   const last = new Date(year, month + 1, 0).getDate()
   let count = 0
   for (let day = 1; day <= last; day += 1) {
-    if (!isOffDay(new Date(year, month, day), offDates, workDates)) count += 1
+    if (!isOffDay(new Date(year, month, day), offDates, workDates, schedule)) count += 1
   }
   return count
 }
@@ -214,8 +377,9 @@ export function countWorkedDaysSoFar(
   offDates: string[] = [],
   workDates: string[] = [],
   includeToday = false,
+  schedule: WeekendSchedule = {},
 ): number {
-  return countWeekdaysUntilYesterday(now, offDates, workDates) + (includeToday ? 1 : 0)
+  return countWeekdaysUntilYesterday(now, offDates, workDates, schedule) + (includeToday ? 1 : 0)
 }
 
 export function monthTotal(
@@ -225,8 +389,9 @@ export function monthTotal(
   workDaysPerMonth: number,
   offDates: string[] = [],
   workDates: string[] = [],
+  schedule: WeekendSchedule = {},
 ): number {
-  const pastDays = Math.min(countWeekdaysUntilYesterday(now, offDates, workDates), workDaysPerMonth)
+  const pastDays = Math.min(countWeekdaysUntilYesterday(now, offDates, workDates, schedule), workDaysPerMonth)
   return pastDays * daily + todayEarned
 }
 
@@ -281,6 +446,7 @@ export function companionText(status: WorkStatus, remaining: number): string {
 export function computeWorkDay(now: Date, profile: Profile) {
   const offDates = profile.offDates ?? []
   const workDates = profile.workDates ?? []
+  const schedule = restScheduleFrom(profile)
   const start = atTime(now, profile.startTime)
   const lunchStart = atTime(now, profile.lunchStartTime)
   const lunchEnd = atTime(now, profile.lunchEndTime)
@@ -291,12 +457,12 @@ export function computeWorkDay(now: Date, profile: Profile) {
     profile.lunchStartTime,
     profile.lunchEndTime,
   )
-  const workDays = countWorkDaysInMonth(now, offDates, workDates)
+  const workDays = countWorkDaysInMonth(now, offDates, workDates, schedule)
   const daily = dailySalary(profile.monthlySalary, workDays)
   const wage = wagesFromDaily(daily, total)
-  const pastWorkedDays = countWorkedDaysSoFar(now, offDates, workDates)
+  const pastWorkedDays = countWorkedDaysSoFar(now, offDates, workDates, false, schedule)
 
-  if (isOffDay(now, offDates, workDates)) {
+  if (isOffDay(now, offDates, workDates, schedule)) {
     return {
       start,
       lunchStart,
@@ -312,7 +478,7 @@ export function computeWorkDay(now: Date, profile: Profile) {
       progress: 0,
       workDays,
       workedDays: pastWorkedDays,
-      monthEarned: monthTotal(now, daily, 0, workDays, offDates, workDates),
+      monthEarned: monthTotal(now, daily, 0, workDays, offDates, workDates, schedule),
     }
   }
 
@@ -321,7 +487,7 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const remaining = getRemainingSeconds(now, start, lunchStart, lunchEnd, end, status)
   const earned = worked * wage.second
   const progress = Math.min(1, worked / total)
-  const workedDays = countWorkedDaysSoFar(now, offDates, workDates, status !== 'before')
+  const workedDays = countWorkedDaysSoFar(now, offDates, workDates, status !== 'before', schedule)
 
   return {
     start,
@@ -338,6 +504,6 @@ export function computeWorkDay(now: Date, profile: Profile) {
     progress,
     workDays,
     workedDays,
-    monthEarned: monthTotal(now, daily, earned, workDays, offDates, workDates),
+    monthEarned: monthTotal(now, daily, earned, workDays, offDates, workDates, schedule),
   }
 }

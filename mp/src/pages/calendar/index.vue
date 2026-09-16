@@ -15,18 +15,31 @@ import { onHide } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useWorkDay } from '../../composables/useWorkDay'
 import { useProfileStore } from '../../stores/profile'
-import { WEEKDAY_LABELS, buildMonthDays, formatMoney, isOffDay } from '../../utils/work'
+import type { WeekendRule } from '../../types'
+import {
+    WEEKDAY_LABELS,
+    WEEKEND_RULES,
+    buildMonthDays,
+    formatMoney,
+    isBigWeek,
+    isOffDay,
+    restScheduleFrom,
+    weekendRuleLabel,
+} from '../../utils/work'
 
 const store = useProfileStore()
 const { now, snapshot } = useWorkDay()
 const salaryReady = computed(() => store.profile.salaryReady)
 const monthLabel = computed(() => `${now.value.getMonth() + 1}月出勤`)
+const schedule = computed(() => restScheduleFrom(store.profile))
+const ruleLabel = computed(() => weekendRuleLabel(store.profile.weekendRule))
+const thisWeekBig = computed(() => isBigWeek(now.value, store.profile.bigWeekAnchor))
 
 function goMe() {
   uni.switchTab({ url: '/pages/me/index' })
 }
 const days = computed(() =>
-  buildMonthDays(now.value, store.profile.offDates, store.profile.workDates),
+  buildMonthDays(now.value, store.profile.offDates, store.profile.workDates, schedule.value),
 )
 
 const editing = ref(false)
@@ -35,10 +48,18 @@ function toggleEdit() {
   editing.value = !editing.value
 }
 
+function pickRule(rule: WeekendRule) {
+  store.setWeekendRule(rule, now.value)
+}
+
+function pickThisWeek(isBig: boolean) {
+  store.setThisWeekBig(isBig, now.value)
+}
+
 function toggleDay(day: number) {
   if (!editing.value) return
   const date = new Date(now.value.getFullYear(), now.value.getMonth(), day)
-  store.setDateOff(date, !isOffDay(date, store.profile.offDates, store.profile.workDates))
+  store.setDateOff(date, !isOffDay(date, store.profile.offDates, store.profile.workDates, schedule.value))
 }
 
 onHide(() => {
@@ -50,7 +71,7 @@ onHide(() => {
   <view class="page">
     <text class="eyebrow">CALENDAR</text>
     <text class="title">{{ monthLabel }}</text>
-    <text class="lead">周末、法定节假日默认休息，调休补班默认上班。要改的话先点编辑。</text>
+    <text class="lead">假日、调休按国务院。要改制度或某一天，先点编辑。</text>
 
     <view class="card" @click="!salaryReady && goMe()">
       <text class="muted">本月累计</text>
@@ -62,9 +83,28 @@ onHide(() => {
 
     <view class="card" :class="{ editing }">
       <view class="cal-head">
-        <text class="cal-title">{{ editing ? '点日期改休息或上班' : '本月日历' }}</text>
+        <text class="cal-title">{{ editing ? '选制度，或点日期改一天' : `本月日历 · ${ruleLabel}` }}</text>
         <view class="edit-btn" @click="toggleEdit">
           <text>{{ editing ? '完成' : '编辑' }}</text>
+        </view>
+      </view>
+      <view v-if="editing" class="rules">
+        <view
+          v-for="item in WEEKEND_RULES"
+          :key="item.id"
+          class="chip"
+          :class="{ on: store.profile.weekendRule === item.id }"
+          @click="pickRule(item.id)"
+        >
+          <text>{{ item.label }}</text>
+        </view>
+      </view>
+      <view v-if="editing && store.profile.weekendRule === 'bigSmall'" class="rules phase">
+        <view class="chip" :class="{ on: thisWeekBig }" @click="pickThisWeek(true)">
+          <text>本周大周</text>
+        </view>
+        <view class="chip" :class="{ on: !thisWeekBig }" @click="pickThisWeek(false)">
+          <text>本周小周</text>
         </view>
       </view>
       <view class="week">
@@ -164,6 +204,39 @@ onHide(() => {
 .edit-btn text {
   color: #f6f1e8;
   font-size: 22rpx;
+}
+
+.rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+
+.rules.phase {
+  margin-top: -8rpx;
+}
+
+.chip {
+  height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: 28rpx;
+  background: #f7f3eb;
+  display: flex;
+  align-items: center;
+}
+
+.chip text {
+  font-size: 22rpx;
+  color: #6d675c;
+}
+
+.chip.on {
+  background: #2b2a26;
+}
+
+.chip.on text {
+  color: #f6f1e8;
 }
 
 .week,
