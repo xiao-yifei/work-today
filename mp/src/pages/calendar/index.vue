@@ -34,6 +34,13 @@ const monthLabel = computed(() => `${now.value.getMonth() + 1}月出勤`)
 const schedule = computed(() => restScheduleFrom(store.profile))
 const ruleLabel = computed(() => weekendRuleLabel(store.profile.weekendRule))
 const thisWeekBig = computed(() => isBigWeek(now.value, store.profile.bigWeekAnchor))
+const calTitle = computed(() => {
+  if (editing.value) return '选制度，或点日期改一天'
+  if (store.profile.weekendRule === 'bigSmall') {
+    return `本月日历 · 大小周 · ${thisWeekBig.value ? '本周大周' : '本周小周'}`
+  }
+  return `本月日历 · ${ruleLabel.value}`
+})
 
 function goMe() {
   uni.switchTab({ url: '/pages/me/index' })
@@ -78,14 +85,12 @@ onHide(() => {
     <view class="card" @click="!salaryReady && goMe()">
       <text class="muted">本月累计</text>
       <text class="big">{{ salaryReady ? `¥${formatMoney(snapshot.monthEarned)}` : '写月薪后就能看' }}</text>
-      <text class="muted">本月上班 {{ snapshot.workDays }} 天，已上班 {{ snapshot.workedDays }} 天。{{
-        !salaryReady ? '' : snapshot.status === 'off' ? '今天休息，不计入今日已赚' : `含今日已赚 ¥${formatMoney(snapshot.earned)}`
-      }}</text>
+      <text class="muted">本月上班 {{ snapshot.workDays }} 天，已上班 {{ snapshot.workedDays }} 天</text>
     </view>
 
     <view class="card" :class="{ editing }">
       <view class="cal-head">
-        <text class="cal-title">{{ editing ? '选制度，或点日期改一天' : `本月日历 · ${ruleLabel}` }}</text>
+        <text class="cal-title">{{ calTitle }}</text>
         <view class="edit-btn" @click="toggleEdit">
           <text>{{ editing ? '完成' : '编辑' }}</text>
         </view>
@@ -183,9 +188,12 @@ onHide(() => {
 }
 
 .cal-title {
+  flex: 1;
+  margin-right: 16rpx;
   font-size: 30rpx;
   font-weight: 700;
   color: #1c1b18;
+  line-height: 1.4;
 }
 
 .edit-btn {

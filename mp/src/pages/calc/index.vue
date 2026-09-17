@@ -369,6 +369,16 @@ const costCoverWidth = computed(() => {
   return `${Math.min(100, (snapshot.value.earned / costDaily.value) * 100)}%`
 })
 
+const costShowNet = computed(
+  () =>
+    salaryReady.value &&
+    costMonthly.value > 0 &&
+    snapshot.value.status !== 'off' &&
+    snapshot.value.earned >= costDaily.value,
+)
+
+const costNet = computed(() => snapshot.value.earned - costDaily.value)
+
 const costInvalid = computed(() => {
   if (costDraft.value.some((item) => !item.name.trim())) return '请填写支出名称'
   if (costDraft.value.some((item) => !(Number(item.priceText) > 0))) return '请填写每月金额'
@@ -491,8 +501,20 @@ onHide(() => {
       </view>
 
       <view v-if="costRows.length" class="hero" @click="!salaryReady && goMe()">
-        <text class="hero-kicker">每个上班日先赚回</text>
-        <text class="hero-num" :class="{ locked: !salaryReady }">{{ salaryReady ? `¥${formatMoney(costDaily)}` : '写月薪后就能看' }}</text>
+        <view v-if="costShowNet" class="hero-pair">
+          <view>
+            <text class="hero-kicker">每个上班日先赚回</text>
+            <text class="hero-num">¥{{ formatMoney(costDaily) }}</text>
+          </view>
+          <view class="hero-net">
+            <text class="hero-kicker">净赚</text>
+            <text class="hero-num">¥{{ formatMoney(costNet) }}</text>
+          </view>
+        </view>
+        <template v-else>
+          <text class="hero-kicker">每个上班日先赚回</text>
+          <text class="hero-num" :class="{ locked: !salaryReady }">{{ salaryReady ? `¥${formatMoney(costDaily)}` : '写月薪后就能看' }}</text>
+        </template>
         <view class="bar">
           <view class="bar-fill" :style="{ width: costCoverWidth }" />
         </view>
@@ -803,6 +825,22 @@ onHide(() => {
   display: block;
   color: rgba(246, 241, 232, 0.62);
   font-size: 22rpx;
+}
+
+.hero-pair {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 28rpx;
+}
+
+.hero-pair .hero-num {
+  margin-bottom: 0;
+  font-size: 48rpx;
+}
+
+.hero-net {
+  text-align: right;
 }
 
 .hero-num {

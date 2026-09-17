@@ -24,10 +24,10 @@ import {
     formatDateLabel,
     formatDuration,
     formatMoney,
+    formatWage,
     heroSubtitle,
     heroTitle,
     statusLabel,
-    summarizeFixedCosts,
 } from '../../utils/work'
 
 const store = useProfileStore()
@@ -46,41 +46,10 @@ const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
 const coffeeCount = computed(() => (snapshot.value.earned / store.coffee.price).toFixed(1))
 const lunchCount = computed(() => (snapshot.value.earned / store.lunch.price).toFixed(1))
-const costSummary = computed(() =>
-  summarizeFixedCosts(
-    store.profile.fixedCosts,
-    snapshot.value.workDays,
-    snapshot.value.earned,
-    snapshot.value.status,
-  ),
-)
-
-const costMain = computed(() => {
-  const next = costSummary.value
-  if (!salaryReady.value) return '写月薪后就能看'
-  return `¥${formatMoney(next.daily)}`
-})
-
-const costSub = computed(() => {
-  const next = costSummary.value
-  if (!salaryReady.value) return '每个上班日'
-  if (next.rest) return '今天休息，不算进上班日'
-  if (next.covered) return '已覆盖'
-  return `还差 ¥${formatMoney(next.gap)}`
-})
-
 const editingMemo = ref(false)
 
 function goTab(url: string) {
   uni.switchTab({ url })
-}
-
-function goGoods() {
-  if (!salaryReady.value) {
-    goTab('/pages/me/index')
-    return
-  }
-  openCalc('goods')
 }
 
 function toggleMemo() {
@@ -160,32 +129,51 @@ onHide(() => {
       </text>
     </view>
 
-    <view class="tiles">
-      <view v-if="costSummary.hasCosts" class="tile" @click="openCalc('cost')">
-        <text class="tile-kicker">先赚回</text>
-        <text class="tile-num" :class="{ locked: !salaryReady }">{{ costMain }}</text>
-        <text class="tile-sub">{{ costSub }}</text>
+    <view v-if="salaryReady" class="card wage">
+      <view class="wage-item">
+        <text class="wage-num">¥ {{ formatWage(snapshot.wage.hourly) }}</text>
+        <text class="wage-label">每小时工资</text>
       </view>
-      <view v-if="costSummary.hasCosts" class="tile" @click="goGoods">
-        <text class="tile-kicker">今天能换</text>
-        <text class="tile-num" :class="{ locked: !salaryReady }">
-          {{ salaryReady ? `${coffeeCount} ${store.coffee.unit}` : '写月薪后就能看' }}
-        </text>
-        <text class="tile-sub">{{ store.coffee.name }}</text>
+      <view class="wage-item">
+        <text class="wage-num">¥ {{ formatWage(snapshot.wage.minute) }}</text>
+        <text class="wage-label">每分钟工资</text>
       </view>
-      <view v-if="!costSummary.hasCosts" class="tile" @click="goGoods">
-        <text class="tile-kicker">{{ store.coffee.name }}</text>
-        <text class="tile-num" :class="{ locked: !salaryReady }">
-          {{ salaryReady ? `${coffeeCount} ${store.coffee.unit}` : '写月薪后就能看' }}
-        </text>
-        <text class="tile-sub">¥{{ store.coffee.price }}/{{ store.coffee.unit }}</text>
+      <view class="wage-item last">
+        <text class="wage-num">¥ {{ formatWage(snapshot.wage.second, 3) }}</text>
+        <text class="wage-label">每秒工资</text>
       </view>
-      <view v-if="!costSummary.hasCosts" class="tile" @click="goGoods">
-        <text class="tile-kicker">{{ store.lunch.name }}</text>
-        <text class="tile-num" :class="{ locked: !salaryReady }">
-          {{ salaryReady ? `${lunchCount} ${store.lunch.unit}` : '写月薪后就能看' }}
-        </text>
-        <text class="tile-sub">¥{{ store.lunch.price }}/{{ store.lunch.unit }}</text>
+    </view>
+    <view v-else class="card locked-card" @click="goTab('/pages/me/index')">
+      <text class="card-title">时薪</text>
+      <text class="locked-text">写月薪后就能看</text>
+    </view>
+
+    <view class="card">
+      <view class="card-head">
+        <text class="card-title">今日购买力</text>
+        <text v-if="salaryReady" class="card-extra" @click.stop="openCalc('goods')">全部换算 ›</text>
+      </view>
+      <text v-if="salaryReady" class="hint">把今天的努力，换成生活里的小确幸</text>
+      <text v-else class="hint locked-text" @click="goTab('/pages/me/index')">写月薪后就能看</text>
+      <view v-if="salaryReady" class="goods">
+        <view class="good">
+          <view class="good-icon">
+            <text>咖</text>
+          </view>
+          <view>
+            <text class="good-num">{{ coffeeCount }} {{ store.coffee.unit }}</text>
+            <text class="good-sub">¥{{ store.coffee.price }}/{{ store.coffee.unit }}</text>
+          </view>
+        </view>
+        <view class="good">
+          <view class="good-icon">
+            <text>午</text>
+          </view>
+          <view>
+            <text class="good-num">{{ lunchCount }} {{ store.lunch.unit }}</text>
+            <text class="good-sub">¥{{ store.lunch.price }}/{{ store.lunch.unit }}</text>
+          </view>
+        </view>
       </view>
     </view>
 
@@ -378,44 +366,99 @@ onHide(() => {
   color: #9a9488;
 }
 
-.tiles {
+.locked-card {
   display: flex;
-  margin-top: 20rpx;
+  align-items: baseline;
+  justify-content: space-between;
 }
 
-.tile {
+.locked-text {
+  color: #7c6246;
+  font-size: 26rpx;
+}
+
+.wage {
+  display: flex;
+  padding: 32rpx 8rpx;
+}
+
+.wage-item {
   flex: 1;
-  padding: 28rpx 24rpx;
-  margin-right: 16rpx;
-  border-radius: 32rpx;
-  background: #fffdf8;
-  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-right: 1px solid #efe8db;
 }
 
-.tile:last-child {
-  margin-right: 0;
+.wage-item.last {
+  border-right: none;
 }
 
-.tile-kicker,
-.tile-sub {
-  display: block;
-  font-size: 22rpx;
-  color: #8a8478;
-}
-
-.tile-num {
-  display: block;
-  margin: 12rpx 0 8rpx;
-  font-size: 40rpx;
+.wage-num {
+  font-size: 28rpx;
   font-weight: 700;
-  line-height: 1.15;
   color: #1c1b18;
 }
 
-.tile-num.locked {
-  font-size: 26rpx;
-  font-weight: 600;
+.wage-label {
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  color: #8a8478;
+}
+
+.hint {
+  display: block;
+  margin: 12rpx 0 20rpx;
+  font-size: 22rpx;
+  color: #9a9488;
+}
+
+.goods {
+  display: flex;
+}
+
+.good {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 20rpx;
+  margin-right: 16rpx;
+  border-radius: 24rpx;
+  background: #f6f1e8;
+}
+
+.good:last-child {
+  margin-right: 0;
+}
+
+.good-icon {
+  width: 64rpx;
+  height: 64rpx;
+  margin-right: 12rpx;
+  border-radius: 20rpx;
+  background: #fffdf8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #7c6246;
+  font-size: 24rpx;
+}
+
+.good-num,
+.good-sub {
+  display: block;
+}
+
+.good-num {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1c1b18;
+}
+
+.good-sub {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: #8a8478;
 }
 
 .edit-btn {

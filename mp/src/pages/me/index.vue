@@ -50,9 +50,11 @@ const preview = computed(() => {
   return wagesFromDaily(daily, total)
 })
 
-const salaryText = ref(String(profile.value.monthlySalary))
+const salaryText = ref(profile.value.salaryReady ? String(profile.value.monthlySalary) : '')
 
 const invalid = computed(() => {
+  const typed = salaryText.value.trim()
+  if (!typed && !profile.value.salaryReady) return ''
   if (!(Number(salaryText.value) > 0)) return '请填写有效月薪'
   return scheduleError(form)
 })
@@ -62,9 +64,11 @@ const dirty = ref(false)
 
 function persist() {
   if (invalid.value) return
+  const salary = Number(salaryText.value)
+  const hasSalary = salary > 0
   dirty.value = false
   store.save({
-    monthlySalary: Number(salaryText.value),
+    monthlySalary: hasSalary ? salary : store.profile.monthlySalary,
     workDaysPerMonth: workDays.value,
     startTime: form.startTime,
     endTime: form.endTime,
@@ -79,7 +83,7 @@ function persist() {
     workDates: [...store.profile.workDates],
     weekendRule: store.profile.weekendRule,
     bigWeekAnchor: store.profile.bigWeekAnchor,
-    salaryReady: true,
+    salaryReady: hasSalary ? true : store.profile.salaryReady,
   })
 }
 
@@ -138,13 +142,13 @@ function setHasLunch(on: boolean) {
     </view>
 
     <view class="card form">
-      <text class="form-title">工作参数</text>
       <view class="field">
         <text class="label">月薪（元）</text>
         <view class="input-wrap">
           <input
             type="digit"
             :value="salaryText"
+            placeholder="写下月薪"
             :cursor-spacing="32"
             adjust-position
             @input="onSalary"
@@ -233,14 +237,6 @@ function setHasLunch(on: boolean) {
   display: block;
   margin-top: 8rpx;
   font-size: 48rpx;
-  font-weight: 700;
-  color: #1c1b18;
-}
-
-.form-title {
-  display: block;
-  margin-bottom: 24rpx;
-  font-size: 30rpx;
   font-weight: 700;
   color: #1c1b18;
 }
