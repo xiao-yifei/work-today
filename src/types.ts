@@ -14,6 +14,12 @@ export interface GoodsItem {
   unit: string
 }
 
+export interface OwnedItem {
+  id: string
+  name: string
+  price: number
+}
+
 export interface FixedCost {
   id: string
   name: string
@@ -30,9 +36,11 @@ export interface Profile {
   hasLunch: boolean
   memo: string
   goods: GoodsItem[]
+  belongings: OwnedItem[]
   fixedCosts: FixedCost[]
   offDates: string[]
   workDates: string[]
   weekendRule: WeekendRule
   bigWeekAnchor: string
+  salaryReady: boolean
 }

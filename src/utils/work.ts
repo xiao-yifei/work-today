@@ -106,6 +106,79 @@ export function formatDuration(totalSeconds: number): string {
   return `${hours}小时${minutes}分钟`
 }
 
+function formatSpanParts(months: number, remDays: number): string {
+  if (months <= 0) {
+    if (remDays < 1) return '不到 1 天'
+    if (remDays < 10) return `${remDays.toFixed(1)} 天`
+    return `${Math.round(remDays)} 天`
+  }
+  if (months < 12) {
+    if (remDays < 1) return `${months} 个月`
+    return `${months} 个月 ${Math.round(remDays)} 天`
+  }
+  const years = Math.floor(months / 12)
+  const remMonths = months % 12
+  if (remMonths <= 0) return `${years} 年`
+  return `${years} 年 ${remMonths} 个月`
+}
+
+function walkWorkSpan(
+  workDaysNeeded: number,
+  from: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+): { months: number; remDays: number } {
+  const thisMonthDays = countWorkDaysInMonth(from, offDates, workDates, schedule)
+  if (workDaysNeeded < thisMonthDays) {
+    return { months: 0, remDays: workDaysNeeded }
+  }
+
+  let remaining = workDaysNeeded
+  let months = 0
+  const cursor = new Date(from.getFullYear(), from.getMonth(), 1)
+  const limit = 12 * 80
+
+  while (remaining > 0 && months < limit) {
+    const daysInMonth = countWorkDaysInMonth(cursor, offDates, workDates, schedule)
+    if (daysInMonth > 0 && remaining <= daysInMonth) {
+      const remDays = Math.round(remaining)
+      if (remDays >= daysInMonth) return { months: months + 1, remDays: 0 }
+      return { months, remDays }
+    }
+    remaining -= daysInMonth
+    months += 1
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+
+  return { months, remDays: 0 }
+}
+
+/** 按日历里每个月的实际上班天数，把要上的班换成天 / 月 / 年。 */
+export function resolveWorkSpan(
+  workDaysNeeded: number,
+  from: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+): { label: string; hint: string } {
+  if (!(workDaysNeeded >= 1)) return { label: '不到 1 天', hint: '' }
+  const { months, remDays } = walkWorkSpan(workDaysNeeded, from, offDates, workDates, schedule)
+  const label = formatSpanParts(months, remDays)
+  const hint = months > 0 ? `约 ${Math.round(workDaysNeeded)} 天` : ''
+  return { label, hint }
+}
+
+export function formatWorkSpan(
+  workDaysNeeded: number,
+  from: Date,
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+): string {
+  return resolveWorkSpan(workDaysNeeded, from, offDates, workDates, schedule).label
+}
+
 export function formatDateLabel(date: Date): string {
   return `${date.getMonth() + 1}月${date.getDate()}日 · ${WEEKDAYS[date.getDay()]}`
 }

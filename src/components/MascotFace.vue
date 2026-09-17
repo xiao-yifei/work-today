@@ -1,18 +1,76 @@
 <template>
-  <svg class="face" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <circle cx="32" cy="36" r="20" fill="#f7f4ee" />
-    <path d="M28 14c1-8 7-12 11-13 1 4-1 10-4 14" stroke="#5d8a4a" stroke-width="2.4" stroke-linecap="round" />
-    <path d="M38 6c5-1 9 2 10 6-4 1-8 1-10-1" fill="#7fad5c" />
-    <ellipse cx="25" cy="35" rx="2.2" ry="2.8" fill="#2b2a26" />
-    <ellipse cx="39" cy="35" rx="2.2" ry="2.8" fill="#2b2a26" />
-    <path d="M29 43c2 2 5 2 7 0" stroke="#c9b8a4" stroke-width="1.6" stroke-linecap="round" />
-  </svg>
+  <view class="face">
+    <view class="sprout" />
+    <view class="leaf" />
+    <view class="eye left" />
+    <view class="eye right" />
+    <view class="blush left" />
+    <view class="blush right" />
+  </view>
 </template>
 
 <style scoped>
 .face {
   width: 54px;
   height: 54px;
-  display: block;
+  border-radius: 50%;
+  background: #f7f4ee;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sprout {
+  position: absolute;
+  left: 25px;
+  top: -10px;
+  width: 3px;
+  height: 14px;
+  border-radius: 3px;
+  background: #5d8a4a;
+}
+
+.leaf {
+  position: absolute;
+  left: 26px;
+  top: -12px;
+  width: 12px;
+  height: 8px;
+  border-radius: 0 10px 0 10px;
+  background: #7fad5c;
+}
+
+.eye {
+  position: absolute;
+  top: 22px;
+  width: 5px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2b2a26;
+}
+
+.eye.left {
+  left: 15px;
+}
+
+.eye.right {
+  right: 15px;
+}
+
+.blush {
+  position: absolute;
+  top: 28px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f0c6b4;
+  opacity: 0.7;
+}
+
+.blush.left {
+  left: 8px;
+}
+
+.blush.right {
+  right: 8px;
 }
 </style>

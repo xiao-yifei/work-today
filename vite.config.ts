@@ -1,11 +1,7 @@
-import vue from '@vitejs/plugin-vue'
-import { defineConfig } from 'vite'
+import { defineConfig } from "vite";
+import uni from "@dcloudio/vite-plugin-uni";
 
-// https://vite.dev/config/
+// https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [vue()],
-  server: {
-    host: true,
-    port: 5173,
-  },
-})
+  plugins: [uni()],
+});
