@@ -19,6 +19,7 @@ export const defaultProfile: Profile = {
   endTime: '19:00',
   lunchStartTime: '12:00',
   lunchEndTime: '13:00',
+  hasLunch: true,
   memo: '',
   goods: defaultGoods,
   belongings: [],
@@ -108,6 +109,7 @@ function loadProfile(): Profile {
         : [],
       belongings: normalizeBelongings(parsed.belongings),
       fixedCosts: normalizeFixedCosts(parsed.fixedCosts),
+      hasLunch: parsed.hasLunch !== false,
       weekendRule: normalizeWeekendRule(parsed.weekendRule),
       bigWeekAnchor: typeof parsed.bigWeekAnchor === 'string' ? parsed.bigWeekAnchor : '',
     }
@@ -140,6 +142,7 @@ export const useProfileStore = defineStore('profile', () => {
       fixedCosts: cloneFixedCosts(next.fixedCosts ?? profile.value.fixedCosts),
       weekendRule: normalizeWeekendRule(next.weekendRule ?? profile.value.weekendRule),
       bigWeekAnchor: typeof next.bigWeekAnchor === 'string' ? next.bigWeekAnchor : profile.value.bigWeekAnchor,
+      hasLunch: next.hasLunch !== false,
       salaryReady: next.salaryReady,
     }
   }

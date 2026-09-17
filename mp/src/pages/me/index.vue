@@ -28,6 +28,7 @@ const form = reactive<Profile>({
   endTime: profile.value.endTime,
   lunchStartTime: profile.value.lunchStartTime,
   lunchEndTime: profile.value.lunchEndTime,
+  hasLunch: profile.value.hasLunch,
   memo: profile.value.memo,
   goods: profile.value.goods.map((item) => ({ ...item })),
   belongings: profile.value.belongings.map((item) => ({ ...item })),
@@ -44,7 +45,7 @@ const workDays = computed(() =>
 )
 
 const preview = computed(() => {
-  const total = workSecondsFromTimes(form.startTime, form.endTime, form.lunchStartTime, form.lunchEndTime)
+  const total = workSecondsFromTimes(form.startTime, form.endTime, form.lunchStartTime, form.lunchEndTime, form.hasLunch)
   const daily = dailySalary(Number(salaryText.value) || 0, workDays.value)
   return wagesFromDaily(daily, total)
 })
@@ -56,29 +57,12 @@ const invalid = computed(() => {
   return scheduleError(form)
 })
 
-const editing = ref(!profile.value.salaryReady)
-
-function syncFormFromStore() {
-  const next = store.profile
-  form.monthlySalary = next.monthlySalary
-  form.workDaysPerMonth = next.workDaysPerMonth
-  form.startTime = next.startTime
-  form.endTime = next.endTime
-  form.lunchStartTime = next.lunchStartTime
-  form.lunchEndTime = next.lunchEndTime
-  form.goods = next.goods.map((item) => ({ ...item }))
-  form.belongings = next.belongings.map((item) => ({ ...item }))
-  form.fixedCosts = next.fixedCosts.map((item) => ({ ...item }))
-  form.offDates = [...next.offDates]
-  form.workDates = [...next.workDates]
-  form.weekendRule = next.weekendRule
-  form.bigWeekAnchor = next.bigWeekAnchor
-  form.salaryReady = next.salaryReady
-  salaryText.value = String(next.monthlySalary)
-}
+const previewReady = computed(() => Number(salaryText.value) > 0 && !scheduleError(form))
+const dirty = ref(false)
 
 function persist() {
   if (invalid.value) return
+  dirty.value = false
   store.save({
     monthlySalary: Number(salaryText.value),
     workDaysPerMonth: workDays.value,
@@ -86,6 +70,7 @@ function persist() {
     endTime: form.endTime,
     lunchStartTime: form.lunchStartTime,
     lunchEndTime: form.lunchEndTime,
+    hasLunch: form.hasLunch,
     memo: store.profile.memo,
     goods: store.profile.goods.map((item) => ({ ...item })),
     belongings: store.profile.belongings.map((item) => ({ ...item })),
@@ -98,119 +83,110 @@ function persist() {
   })
 }
 
-function finishEdit() {
-  if (invalid.value) return false
-  persist()
-  editing.value = false
-  return true
-}
-
-function toggleEdit() {
-  if (editing.value) {
-    finishEdit()
-    return
-  }
-  syncFormFromStore()
-  editing.value = true
-}
-
 onHide(() => {
-  if (!editing.value) return
-  syncFormFromStore()
-  editing.value = false
+  if (dirty.value) persist()
 })
 
 function onSalary(e: { detail: { value: string } }) {
-  if (!editing.value) return
   salaryText.value = e.detail.value
+  dirty.value = true
 }
 
 function onStart(e: { detail: { value: string } }) {
-  if (!editing.value) return
   form.startTime = e.detail.value
+  dirty.value = true
+  persist()
 }
 
 function onEnd(e: { detail: { value: string } }) {
-  if (!editing.value) return
   form.endTime = e.detail.value
+  dirty.value = true
+  persist()
 }
 
 function onLunchStart(e: { detail: { value: string } }) {
-  if (!editing.value) return
   form.lunchStartTime = e.detail.value
+  dirty.value = true
+  persist()
 }
 
 function onLunchEnd(e: { detail: { value: string } }) {
-  if (!editing.value) return
   form.lunchEndTime = e.detail.value
+  dirty.value = true
+  persist()
+}
+
+function setHasLunch(on: boolean) {
+  form.hasLunch = on
+  dirty.value = true
+  persist()
 }
 </script>
 
 <template>
   <view class="page">
-    <text class="eyebrow">PROFILE</text>
+    <view class="eyebrow">
+      <text>PROFILE</text>
+    </view>
     <text class="title">工作设置</text>
-    <text class="lead">要改的话先点编辑，点完成才会存到本地。休息日和上班天数在日历里改。</text>
+    <text class="lead">改完会存到本地。休息日和上班天数在日历里改。</text>
 
     <view class="card">
-      <text class="muted">{{ store.profile.salaryReady || editing ? '按当前月薪和日历上班天数，时薪约为' : '写下月薪后就能看时薪' }}</text>
-      <text class="big">{{ store.profile.salaryReady || editing ? `¥${formatMoney(preview.hourly)}` : '写月薪后就能看' }}</text>
+      <text class="muted">{{ previewReady ? '按当前月薪和日历上班天数，时薪约为' : '写下月薪后就能看时薪' }}</text>
+      <text class="big">{{ previewReady ? `¥${formatMoney(preview.hourly)}` : '写月薪后就能看' }}</text>
       <text class="muted">本月上班 {{ workDays }} 天，在日历里改</text>
     </view>
 
-    <view class="card form" :class="{ editing }">
-      <view class="form-head">
-        <text class="form-title">{{ editing ? '点完成存到本地' : '工作参数' }}</text>
-        <view class="edit-btn" @click="toggleEdit">
-          <text>{{ editing ? '完成' : '编辑' }}</text>
-        </view>
-      </view>
+    <view class="card form">
+      <text class="form-title">工作参数</text>
       <view class="field">
         <text class="label">月薪（元）</text>
         <view class="input-wrap">
           <input
             type="digit"
             :value="salaryText"
-            :disabled="!editing"
             :cursor-spacing="32"
             adjust-position
             @input="onSalary"
+            @blur="persist"
           />
         </view>
       </view>
       <view class="split">
         <view class="field half">
           <text class="label">上班时间</text>
-          <picker v-if="editing" mode="time" :value="form.startTime" @change="onStart">
+          <picker mode="time" :value="form.startTime" @change="onStart">
             <view class="picker">{{ form.startTime }}</view>
           </picker>
-          <view v-else class="picker">{{ form.startTime }}</view>
         </view>
         <view class="field half">
           <text class="label">下班时间</text>
-          <picker v-if="editing" mode="time" :value="form.endTime" @change="onEnd">
+          <picker mode="time" :value="form.endTime" @change="onEnd">
             <view class="picker">{{ form.endTime }}</view>
           </picker>
-          <view v-else class="picker">{{ form.endTime }}</view>
         </view>
       </view>
-      <view class="split">
+      <view class="switch-row">
+        <text class="label">午休</text>
+        <view class="switch" :class="{ on: form.hasLunch }" @click="setHasLunch(!form.hasLunch)">
+          <view class="knob" />
+        </view>
+      </view>
+      <view v-if="form.hasLunch" class="split">
         <view class="field half">
           <text class="label">午休开始</text>
-          <picker v-if="editing" mode="time" :value="form.lunchStartTime" @change="onLunchStart">
+          <picker mode="time" :value="form.lunchStartTime" @change="onLunchStart">
             <view class="picker">{{ form.lunchStartTime }}</view>
           </picker>
-          <view v-else class="picker">{{ form.lunchStartTime }}</view>
         </view>
         <view class="field half">
           <text class="label">午休结束</text>
-          <picker v-if="editing" mode="time" :value="form.lunchEndTime" @change="onLunchEnd">
+          <picker mode="time" :value="form.lunchEndTime" @change="onLunchEnd">
             <view class="picker">{{ form.lunchEndTime }}</view>
           </picker>
-          <view v-else class="picker">{{ form.lunchEndTime }}</view>
         </view>
       </view>
-      <text v-if="editing && invalid" class="error">{{ invalid }}</text>
+      <text v-if="invalid" class="error">{{ invalid }}</text>
     </view>
 
     <text class="privacy">小荧提示：你的信息只收在本地哦，谁问我也不说。</text>
@@ -222,16 +198,8 @@ function onLunchEnd(e: { detail: { value: string } }) {
   padding: 24rpx 32rpx 48rpx;
 }
 
-.eyebrow {
-  display: block;
-  font-size: 22rpx;
-  letter-spacing: 2rpx;
-  color: #8a8478;
-}
-
 .title {
   display: block;
-  margin-top: 8rpx;
   font-size: 48rpx;
   font-weight: 700;
   color: #1c1b18;
@@ -269,29 +237,12 @@ function onLunchEnd(e: { detail: { value: string } }) {
   color: #1c1b18;
 }
 
-.form-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24rpx;
-}
-
 .form-title {
+  display: block;
+  margin-bottom: 24rpx;
   font-size: 30rpx;
   font-weight: 700;
   color: #1c1b18;
-}
-
-.edit-btn {
-  height: 56rpx;
-  padding: 0 24rpx;
-  border-radius: 28rpx;
-  background: #2b2a26;
-}
-
-.edit-btn text {
-  color: #f6f1e8;
-  font-size: 22rpx;
 }
 
 .field {
@@ -337,6 +288,49 @@ function onLunchEnd(e: { detail: { value: string } }) {
   align-items: center;
   color: #1c1b18;
   font-size: 28rpx;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24rpx;
+}
+
+.switch-row .label {
+  margin-bottom: 0;
+}
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 96rpx;
+  height: 52rpx;
+  border-radius: 26rpx;
+  background: #efe8db;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+  transition: background-color 0.25s ease;
+}
+
+.switch.on {
+  background: #2b2a26;
+}
+
+.knob {
+  position: absolute;
+  top: 2rpx;
+  left: 2rpx;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 24rpx;
+  background: #fffdf8;
+  transition: left 0.25s ease;
+}
+
+.switch.on .knob {
+  left: 46rpx;
 }
 
 .split {

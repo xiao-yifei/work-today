@@ -38,6 +38,7 @@ export const defaultProfile: Profile = {
   endTime: '19:00',
   lunchStartTime: '12:00',
   lunchEndTime: '13:00',
+  hasLunch: true,
   memo: '今天要汇报王总的方案',
   goods: defaultGoods,
   fixedCosts: [],
@@ -66,6 +67,7 @@ function loadProfile(): Profile {
         ? parsed.workDates.filter((item): item is string => typeof item === 'string')
         : [],
       fixedCosts: normalizeFixedCosts(parsed.fixedCosts),
+      hasLunch: parsed.hasLunch !== false,
       weekendRule: normalizeWeekendRule(parsed.weekendRule),
       bigWeekAnchor: typeof parsed.bigWeekAnchor === 'string' ? parsed.bigWeekAnchor : '',
     }
@@ -93,6 +95,7 @@ export const useProfileStore = defineStore('profile', () => {
       ...next,
       goods: next.goods.map((item) => ({ ...item })),
       fixedCosts: cloneFixedCosts(next.fixedCosts ?? profile.value.fixedCosts),
+      hasLunch: next.hasLunch !== false,
       offDates: Array.isArray(next.offDates) ? [...next.offDates] : [...profile.value.offDates],
       workDates: Array.isArray(next.workDates) ? [...next.workDates] : [...profile.value.workDates],
       weekendRule: normalizeWeekendRule(next.weekendRule ?? profile.value.weekendRule),

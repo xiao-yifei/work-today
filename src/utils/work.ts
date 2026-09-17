@@ -30,19 +30,27 @@ export function overlapSeconds(fromA: Date, toA: Date, fromB: Date, toB: Date): 
   return Math.max(0, Math.floor((to - from) / 1000))
 }
 
+export function hasLunchBreak(profile: { hasLunch?: boolean }): boolean {
+  return profile.hasLunch !== false
+}
+
 export function workSecondsFromTimes(
   startTime: string,
   endTime: string,
   lunchStartTime: string,
   lunchEndTime: string,
+  hasLunch = true,
 ): number {
   const span = hhmmToSeconds(endTime) - hhmmToSeconds(startTime)
-  const lunch = Math.max(0, hhmmToSeconds(lunchEndTime) - hhmmToSeconds(lunchStartTime))
+  const lunch = hasLunch ? Math.max(0, hhmmToSeconds(lunchEndTime) - hhmmToSeconds(lunchStartTime)) : 0
   return Math.max(1, span - lunch)
 }
 
-export function scheduleError(profile: Pick<Profile, 'startTime' | 'endTime' | 'lunchStartTime' | 'lunchEndTime'>): string {
+export function scheduleError(
+  profile: Pick<Profile, 'startTime' | 'endTime' | 'lunchStartTime' | 'lunchEndTime'> & { hasLunch?: boolean },
+): string {
   if (profile.endTime <= profile.startTime) return '下班时间需晚于上班时间'
+  if (!hasLunchBreak(profile)) return ''
   if (profile.lunchEndTime <= profile.lunchStartTime) return '午休结束需晚于开始时间'
   if (profile.lunchStartTime < profile.startTime || profile.lunchEndTime > profile.endTime) {
     return '午休需在上班和下班之间'
@@ -375,14 +383,16 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const workDates = profile.workDates ?? []
   const schedule = restScheduleFrom(profile)
   const start = atTime(now, profile.startTime)
-  const lunchStart = atTime(now, profile.lunchStartTime)
-  const lunchEnd = atTime(now, profile.lunchEndTime)
+  const lunchOn = hasLunchBreak(profile)
+  const lunchStart = lunchOn ? atTime(now, profile.lunchStartTime) : start
+  const lunchEnd = lunchOn ? atTime(now, profile.lunchEndTime) : start
   const end = atTime(now, profile.endTime)
   const total = workSecondsFromTimes(
     profile.startTime,
     profile.endTime,
     profile.lunchStartTime,
     profile.lunchEndTime,
+    lunchOn,
   )
   const workDays = countWorkDaysInMonth(now, offDates, workDates, schedule)
   const daily = dailySalary(profile.monthlySalary, workDays)

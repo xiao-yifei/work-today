@@ -103,7 +103,7 @@ const costCover = computed(() => {
         <span>{{ workedLabel }}</span>
         <span>{{ store.profile.endTime }}</span>
       </div>
-      <p class="lunch-meta">午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时</p>
+      <p v-if="store.profile.hasLunch" class="lunch-meta">午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时</p>
     </section>
 
     <section class="card wage">
@@ -120,6 +120,24 @@ const costCover = computed(() => {
         <span>每秒工资</span>
       </div>
     </section>
+
+    <router-link v-if="costSummary.hasCosts" class="card cost" to="/calc">
+      <div class="card-head">
+        <h2>今日固定支出</h2>
+        <span>去换算 ›</span>
+      </div>
+      <div class="cost-row">
+        <div>
+          <small>每个上班日</small>
+          <strong>¥{{ formatMoney(costSummary.daily) }}</strong>
+        </div>
+        <div v-if="costSummary.covered && !costSummary.rest">
+          <small>净赚</small>
+          <strong>¥{{ formatMoney(costSummary.net) }}</strong>
+        </div>
+      </div>
+      <p v-if="costCover" class="hint">{{ costCover }}</p>
+    </router-link>
 
     <section class="card">
       <div class="card-head">
@@ -156,24 +174,6 @@ const costCover = computed(() => {
         </article>
       </div>
     </section>
-
-    <router-link v-if="costSummary.hasCosts" class="card cost" to="/calc">
-      <div class="card-head">
-        <h2>今日固定支出</h2>
-        <span>去换算 ›</span>
-      </div>
-      <div class="cost-row">
-        <div>
-          <small>每个上班日</small>
-          <strong>¥{{ formatMoney(costSummary.daily) }}</strong>
-        </div>
-        <div v-if="costSummary.covered && !costSummary.rest">
-          <small>净赚</small>
-          <strong>¥{{ formatMoney(costSummary.net) }}</strong>
-        </div>
-      </div>
-      <p v-if="costCover" class="hint">{{ costCover }}</p>
-    </router-link>
 
     <router-link class="card memo" to="/me">
       <p>· {{ store.profile.memo || '今天还没有备忘' }}</p>

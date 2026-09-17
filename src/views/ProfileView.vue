@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useProfileStore } from '../stores/profile'
 import type { Profile } from '../types'
 import { countWorkDaysInMonth, dailySalary, formatMoney, restScheduleFrom, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../utils/work'
@@ -15,6 +15,7 @@ const form = reactive<Profile>({
   endTime: profile.value.endTime,
   lunchStartTime: profile.value.lunchStartTime,
   lunchEndTime: profile.value.lunchEndTime,
+  hasLunch: profile.value.hasLunch,
   memo: profile.value.memo,
   goods: profile.value.goods.map((item) => ({ ...item })),
   fixedCosts: profile.value.fixedCosts.map((item) => ({ ...item })),
@@ -29,7 +30,7 @@ const workDays = computed(() =>
 )
 
 const preview = computed(() => {
-  const total = workSecondsFromTimes(form.startTime, form.endTime, form.lunchStartTime, form.lunchEndTime)
+  const total = workSecondsFromTimes(form.startTime, form.endTime, form.lunchStartTime, form.lunchEndTime, form.hasLunch)
   const daily = dailySalary(Number(form.monthlySalary) || 0, workDays.value)
   return wagesFromDaily(daily, total)
 })
@@ -38,25 +39,6 @@ const invalid = computed(() => {
   if (!(Number(form.monthlySalary) > 0)) return '请填写有效月薪'
   return scheduleError(form)
 })
-
-const editing = ref(false)
-
-function syncFormFromStore() {
-  const next = store.profile
-  form.monthlySalary = next.monthlySalary
-  form.workDaysPerMonth = next.workDaysPerMonth
-  form.startTime = next.startTime
-  form.endTime = next.endTime
-  form.lunchStartTime = next.lunchStartTime
-  form.lunchEndTime = next.lunchEndTime
-  form.memo = next.memo
-  form.goods = next.goods.map((item) => ({ ...item }))
-  form.fixedCosts = next.fixedCosts.map((item) => ({ ...item }))
-  form.offDates = [...next.offDates]
-  form.workDates = [...next.workDates]
-  form.weekendRule = next.weekendRule
-  form.bigWeekAnchor = next.bigWeekAnchor
-}
 
 function persist() {
   if (invalid.value) return
@@ -67,6 +49,7 @@ function persist() {
     endTime: form.endTime,
     lunchStartTime: form.lunchStartTime,
     lunchEndTime: form.lunchEndTime,
+    hasLunch: form.hasLunch,
     memo: form.memo.trim(),
     goods: store.profile.goods.map((item) => ({ ...item })),
     fixedCosts: store.profile.fixedCosts.map((item) => ({ ...item })),
@@ -77,21 +60,18 @@ function persist() {
   })
 }
 
-function finishEdit() {
-  if (invalid.value) return false
-  persist()
-  editing.value = false
-  return true
-}
-
-function toggleEdit() {
-  if (editing.value) {
-    finishEdit()
-    return
-  }
-  syncFormFromStore()
-  editing.value = true
-}
+watch(
+  () => [
+    form.monthlySalary,
+    form.startTime,
+    form.endTime,
+    form.lunchStartTime,
+    form.lunchEndTime,
+    form.hasLunch,
+    form.memo,
+  ],
+  persist,
+)
 
 </script>
 
@@ -100,7 +80,7 @@ function toggleEdit() {
     <header>
       <p class="eyebrow">PROFILE</p>
       <h1>工作设置</h1>
-      <p class="lead">要改的话先点编辑，点完成才会存到本地。休息日和上班天数在日历里改。</p>
+      <p class="lead">改完会存到本地。休息日和上班天数在日历里改。</p>
     </header>
 
     <section class="card preview">
@@ -109,43 +89,44 @@ function toggleEdit() {
       <p>本月上班 {{ workDays }} 天，在日历里改</p>
     </section>
 
-    <form class="card" :class="{ editing }" @submit.prevent="toggleEdit">
-      <div class="form-head">
-        <p>{{ editing ? '点完成存到本地' : '工作参数' }}</p>
-        <button type="button" class="edit-btn" @click="toggleEdit">
-          {{ editing ? '完成' : '编辑' }}
-        </button>
-      </div>
+    <section class="card form">
+      <p class="form-title">工作参数</p>
       <label>
         <span>月薪（元）</span>
-        <input v-model.number="form.monthlySalary" type="number" min="1" step="1" inputmode="decimal" :disabled="!editing" />
+        <input v-model.number="form.monthlySalary" type="number" min="1" step="1" inputmode="decimal" />
       </label>
       <div class="split">
         <label>
           <span>上班时间</span>
-          <input v-model="form.startTime" type="time" :disabled="!editing" />
+          <input v-model="form.startTime" type="time" />
         </label>
         <label>
           <span>下班时间</span>
-          <input v-model="form.endTime" type="time" :disabled="!editing" />
+          <input v-model="form.endTime" type="time" />
         </label>
       </div>
-      <div class="split">
+      <div class="switch-row">
+        <span>午休</span>
+        <button type="button" class="switch" :class="{ on: form.hasLunch }" @click="form.hasLunch = !form.hasLunch">
+          <i class="knob" />
+        </button>
+      </div>
+      <div v-if="form.hasLunch" class="split">
         <label>
           <span>午休开始</span>
-          <input v-model="form.lunchStartTime" type="time" :disabled="!editing" />
+          <input v-model="form.lunchStartTime" type="time" />
         </label>
         <label>
           <span>午休结束</span>
-          <input v-model="form.lunchEndTime" type="time" :disabled="!editing" />
+          <input v-model="form.lunchEndTime" type="time" />
         </label>
       </div>
       <label>
         <span>今日备忘</span>
-        <textarea v-model="form.memo" rows="3" maxlength="80" placeholder="今天想记住的一件事" :disabled="!editing" />
+        <textarea v-model="form.memo" rows="3" maxlength="80" placeholder="今天想记住的一件事" />
       </label>
-      <p v-if="editing && invalid" class="error">{{ invalid }}</p>
-    </form>
+      <p v-if="invalid" class="error">{{ invalid }}</p>
+    </section>
   </main>
 </template>
 
@@ -201,41 +182,17 @@ h1 {
   color: #1c1b18;
 }
 
-form {
+.form {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.form-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.form-head p {
+.form-title {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
   color: #1c1b18;
-}
-
-.edit-btn {
-  height: 30px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 999px;
-  background: #2b2a26;
-  color: #f6f1e8;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-input:disabled,
-textarea:disabled {
-  opacity: 0.85;
-  color: #3d3b35;
 }
 
 label {
@@ -260,6 +217,46 @@ textarea {
 
 textarea {
   resize: none;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #6d675c;
+}
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 13px;
+  background: #efe8db;
+  overflow: hidden;
+  transition: background-color 0.25s ease;
+}
+
+.switch.on {
+  background: #2b2a26;
+}
+
+.knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: #fffdf8;
+  transition: left 0.25s ease;
+}
+
+.switch.on .knob {
+  left: 23px;
 }
 
 .split {

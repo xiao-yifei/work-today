@@ -15,6 +15,7 @@ import { onHide } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import MascotArt from '../../components/MascotArt.vue'
 import MascotFace from '../../components/MascotFace.vue'
+import { openCalc } from '../../composables/useCalcTab'
 import { useWorkDay } from '../../composables/useWorkDay'
 import { useProfileStore } from '../../stores/profile'
 import {
@@ -23,7 +24,6 @@ import {
     formatDateLabel,
     formatDuration,
     formatMoney,
-    formatWage,
     heroSubtitle,
     heroTitle,
     statusLabel,
@@ -34,20 +34,18 @@ const store = useProfileStore()
 const { now, snapshot } = useWorkDay()
 
 const resting = computed(() => snapshot.value.status === 'off')
+const ended = computed(() => snapshot.value.status === 'after' || snapshot.value.status === 'off')
 const dateLabel = computed(() => formatDateLabel(now.value))
-const clockText = computed(() => {
-  if (resting.value || snapshot.value.status === 'after') return '00:00:00'
-  return formatClock(snapshot.value.remaining)
-})
+const salaryReady = computed(() => store.profile.salaryReady)
+
+const clockText = computed(() => formatClock(snapshot.value.remaining))
 const workedLabel = computed(() =>
   resting.value ? '今日休息' : `已工作 ${formatDuration(snapshot.value.worked)}`,
 )
-
 const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
 const coffeeCount = computed(() => (snapshot.value.earned / store.coffee.price).toFixed(1))
 const lunchCount = computed(() => (snapshot.value.earned / store.lunch.price).toFixed(1))
-const salaryReady = computed(() => store.profile.salaryReady)
 const costSummary = computed(() =>
   summarizeFixedCosts(
     store.profile.fixedCosts,
@@ -57,24 +55,32 @@ const costSummary = computed(() =>
   ),
 )
 
-function workTimeLabel(amount: number): string {
-  const seconds = amount / Math.max(snapshot.value.wage.second, 1e-9)
-  if (seconds < 60) return '不到1分钟'
-  return formatDuration(seconds)
-}
-
-const costCover = computed(() => {
+const costMain = computed(() => {
   const next = costSummary.value
-  if (!salaryReady.value || !next.hasCosts) return ''
+  if (!salaryReady.value) return '写月薪后就能看'
+  return `¥${formatMoney(next.daily)}`
+})
+
+const costSub = computed(() => {
+  const next = costSummary.value
+  if (!salaryReady.value) return '每个上班日'
   if (next.rest) return '今天休息，不算进上班日'
-  if (next.covered) return '今天的固定支出已覆盖'
-  return `还差 ¥${formatMoney(next.gap)} · 还要上班 ${workTimeLabel(next.gap)}`
+  if (next.covered) return '已覆盖'
+  return `还差 ¥${formatMoney(next.gap)}`
 })
 
 const editingMemo = ref(false)
 
 function goTab(url: string) {
   uni.switchTab({ url })
+}
+
+function goGoods() {
+  if (!salaryReady.value) {
+    goTab('/pages/me/index')
+    return
+  }
+  openCalc('goods')
 }
 
 function toggleMemo() {
@@ -95,7 +101,9 @@ onHide(() => {
 <template>
   <view class="page">
     <view class="top">
-      <text class="eyebrow">WORK TODAY 今天也很棒</text>
+      <view class="eyebrow">
+        <text>WORK TODAY 今天也很棒</text>
+      </view>
       <view class="title-row">
         <text class="date">{{ dateLabel }}</text>
         <view class="badge" :class="{ rest: resting }" @click="goTab(resting ? '/pages/calendar/index' : '/pages/me/index')">
@@ -108,14 +116,24 @@ onHide(() => {
     <view class="hero">
       <view class="hero-copy">
         <text class="hero-kicker">{{ heroTitle(snapshot.status) }}</text>
-        <text class="hero-clock">{{ clockText }}</text>
+        <text v-if="!ended" class="hero-clock">{{ clockText }}</text>
+        <text
+          v-else
+          class="hero-clock"
+          :class="{ locked: !salaryReady }"
+          @click="!salaryReady && goTab('/pages/me/index')"
+        >
+          {{ salaryReady ? `¥${formatMoney(resting ? snapshot.monthEarned : snapshot.earned)}` : '写月薪后就能看' }}
+        </text>
         <text class="hero-sub">{{ heroSubtitle(snapshot.status) }}</text>
         <view class="earn">
-          <text class="earn-label">今日已赚</text>
-          <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(snapshot.earned) }}</text>
-          <text v-else class="earn-value locked" @click="goTab('/pages/me/index')">写月薪后就能看</text>
+          <template v-if="!ended">
+            <text class="earn-label">今日已赚</text>
+            <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(snapshot.earned) }}</text>
+            <text v-else class="earn-value locked" @click="goTab('/pages/me/index')">写月薪后就能看</text>
+          </template>
           <text class="month" @click="goTab(salaryReady ? '/pages/calendar/index' : '/pages/me/index')">
-            已上 {{ snapshot.workedDays }} 天{{ salaryReady ? ` · ¥${formatMoney(snapshot.monthEarned)}` : '' }} ›
+            已上 {{ snapshot.workedDays }} 天{{ salaryReady && !ended ? ` · ¥${formatMoney(snapshot.monthEarned)}` : '' }} ›
           </text>
         </view>
       </view>
@@ -127,7 +145,7 @@ onHide(() => {
     <view class="card">
       <view class="card-head">
         <text class="card-title">今日工作进度</text>
-        <text class="card-extra">{{ progressPct }}% 今日进度</text>
+        <text class="card-extra">{{ progressPct }}%</text>
       </view>
       <view class="bar">
         <view class="bar-fill" :style="{ width: progressWidth }" />
@@ -137,74 +155,38 @@ onHide(() => {
         <text>{{ workedLabel }}</text>
         <text>{{ store.profile.endTime }}</text>
       </view>
-      <text class="lunch-meta">午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时</text>
+      <text v-if="store.profile.hasLunch" class="lunch-meta">
+        午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时
+      </text>
     </view>
 
-    <view v-if="salaryReady" class="card wage">
-      <view class="wage-item">
-        <text class="wage-num">¥ {{ formatWage(snapshot.wage.hourly) }}</text>
-        <text class="wage-label">每小时工资</text>
+    <view class="tiles">
+      <view v-if="costSummary.hasCosts" class="tile" @click="openCalc('cost')">
+        <text class="tile-kicker">先赚回</text>
+        <text class="tile-num" :class="{ locked: !salaryReady }">{{ costMain }}</text>
+        <text class="tile-sub">{{ costSub }}</text>
       </view>
-      <view class="wage-item">
-        <text class="wage-num">¥ {{ formatWage(snapshot.wage.minute) }}</text>
-        <text class="wage-label">每分钟工资</text>
+      <view v-if="costSummary.hasCosts" class="tile" @click="goGoods">
+        <text class="tile-kicker">今天能换</text>
+        <text class="tile-num" :class="{ locked: !salaryReady }">
+          {{ salaryReady ? `${coffeeCount} ${store.coffee.unit}` : '写月薪后就能看' }}
+        </text>
+        <text class="tile-sub">{{ store.coffee.name }}</text>
       </view>
-      <view class="wage-item last">
-        <text class="wage-num">¥ {{ formatWage(snapshot.wage.second, 3) }}</text>
-        <text class="wage-label">每秒工资</text>
+      <view v-if="!costSummary.hasCosts" class="tile" @click="goGoods">
+        <text class="tile-kicker">{{ store.coffee.name }}</text>
+        <text class="tile-num" :class="{ locked: !salaryReady }">
+          {{ salaryReady ? `${coffeeCount} ${store.coffee.unit}` : '写月薪后就能看' }}
+        </text>
+        <text class="tile-sub">¥{{ store.coffee.price }}/{{ store.coffee.unit }}</text>
       </view>
-    </view>
-    <view v-else class="card locked-card" @click="goTab('/pages/me/index')">
-      <text class="card-title">时薪</text>
-      <text class="locked-text">写月薪后就能看</text>
-    </view>
-
-    <view class="card">
-      <view class="card-head">
-        <text class="card-title">今日购买力</text>
-        <text v-if="salaryReady" class="card-extra" @click="goTab('/pages/calc/index')">全部换算 ›</text>
+      <view v-if="!costSummary.hasCosts" class="tile" @click="goGoods">
+        <text class="tile-kicker">{{ store.lunch.name }}</text>
+        <text class="tile-num" :class="{ locked: !salaryReady }">
+          {{ salaryReady ? `${lunchCount} ${store.lunch.unit}` : '写月薪后就能看' }}
+        </text>
+        <text class="tile-sub">¥{{ store.lunch.price }}/{{ store.lunch.unit }}</text>
       </view>
-      <text v-if="salaryReady" class="hint">把今天的努力，换成生活里的小确幸</text>
-      <text v-else class="hint locked-text" @click="goTab('/pages/me/index')">写月薪后就能看</text>
-      <view v-if="salaryReady" class="goods">
-        <view class="good">
-          <view class="good-icon">
-            <text>咖</text>
-          </view>
-          <view>
-            <text class="good-num">{{ coffeeCount }} {{ store.coffee.unit }}</text>
-            <text class="good-sub">¥{{ store.coffee.price }}/{{ store.coffee.unit }}</text>
-          </view>
-        </view>
-        <view class="good">
-          <view class="good-icon">
-            <text>午</text>
-          </view>
-          <view>
-            <text class="good-num">{{ lunchCount }} {{ store.lunch.unit }}</text>
-            <text class="good-sub">¥{{ store.lunch.price }}/{{ store.lunch.unit }}</text>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <view v-if="costSummary.hasCosts" class="card" @click="goTab('/pages/calc/index')">
-      <view class="card-head">
-        <text class="card-title">今日固定支出</text>
-        <text class="card-extra">去换算 ›</text>
-      </view>
-      <view class="cost-row">
-        <view>
-          <text class="muted">每个上班日</text>
-          <text class="cost-num">¥{{ formatMoney(costSummary.daily) }}</text>
-        </view>
-        <view v-if="salaryReady && costSummary.covered && !costSummary.rest" class="cost-net">
-          <text class="muted">净赚</text>
-          <text class="cost-num">¥{{ formatMoney(costSummary.net) }}</text>
-        </view>
-      </view>
-      <text v-if="salaryReady && costCover" class="hint cost-hint">{{ costCover }}</text>
-      <text v-else-if="!salaryReady" class="hint locked-text">写月薪后就能看覆盖进度</text>
     </view>
 
     <view class="card">
@@ -222,7 +204,7 @@ onHide(() => {
         placeholder="今天还没有备忘"
         @input="onMemo"
       />
-      <text v-else class="memo">· {{ store.profile.memo || '今天还没有备忘' }}</text>
+      <text v-else class="memo">{{ store.profile.memo || '今天还没有备忘' }}</text>
     </view>
 
     <view class="card companion">
@@ -238,14 +220,6 @@ onHide(() => {
 <style scoped>
 .page {
   padding: 24rpx 32rpx 48rpx;
-}
-
-.eyebrow {
-  display: block;
-  margin-bottom: 8rpx;
-  font-size: 22rpx;
-  letter-spacing: 2rpx;
-  color: #8a8478;
 }
 
 .title-row {
@@ -320,13 +294,18 @@ onHide(() => {
   line-height: 1.1;
 }
 
+.hero-clock.locked {
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
 .earn {
   margin-top: 40rpx;
 }
 
 .earn-value {
   display: block;
-  margin: 8rpx 0 8rpx;
+  margin: 8rpx 0;
   color: #f6f1e8;
   font-size: 52rpx;
   font-weight: 700;
@@ -335,17 +314,6 @@ onHide(() => {
 .earn-value.locked {
   font-size: 34rpx;
   font-weight: 600;
-}
-
-.locked-card {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-.locked-text {
-  color: #7c6246;
-  font-size: 26rpx;
 }
 
 .month {
@@ -410,117 +378,44 @@ onHide(() => {
   color: #9a9488;
 }
 
-.wage {
+.tiles {
   display: flex;
-  padding: 32rpx 8rpx;
+  margin-top: 20rpx;
 }
 
-.wage-item {
+.tile {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border-right: 1px solid #efe8db;
-}
-
-.wage-item.last {
-  border-right: none;
-}
-
-.wage-num {
-  font-size: 28rpx;
-  font-weight: 700;
-  color: #1c1b18;
-}
-
-.wage-label {
-  margin-top: 8rpx;
-  font-size: 20rpx;
-  color: #8a8478;
-}
-
-.hint {
-  display: block;
-  margin: 12rpx 0 20rpx;
-  font-size: 22rpx;
-  color: #9a9488;
-}
-
-.cost-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  margin-top: 16rpx;
-}
-
-.cost-net {
-  text-align: right;
-}
-
-.cost-num {
-  display: block;
-  margin-top: 6rpx;
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #1c1b18;
-}
-
-.cost-hint {
-  margin-bottom: 0;
-}
-
-.muted {
-  display: block;
-  font-size: 22rpx;
-  color: #8a8478;
-}
-
-.goods {
-  display: flex;
-}
-
-.good {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 20rpx;
+  padding: 28rpx 24rpx;
   margin-right: 16rpx;
-  border-radius: 24rpx;
-  background: #f6f1e8;
+  border-radius: 32rpx;
+  background: #fffdf8;
+  box-sizing: border-box;
 }
 
-.good:last-child {
+.tile:last-child {
   margin-right: 0;
 }
 
-.good-icon {
-  width: 64rpx;
-  height: 64rpx;
-  margin-right: 12rpx;
-  border-radius: 20rpx;
-  background: #fffdf8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #7c6246;
-  font-size: 24rpx;
-}
-
-.good-num,
-.good-sub {
+.tile-kicker,
+.tile-sub {
   display: block;
+  font-size: 22rpx;
+  color: #8a8478;
 }
 
-.good-num {
-  font-size: 30rpx;
+.tile-num {
+  display: block;
+  margin: 12rpx 0 8rpx;
+  font-size: 40rpx;
   font-weight: 700;
+  line-height: 1.15;
   color: #1c1b18;
 }
 
-.good-sub {
-  margin-top: 4rpx;
-  font-size: 20rpx;
-  color: #8a8478;
+.tile-num.locked {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #7c6246;
 }
 
 .edit-btn {

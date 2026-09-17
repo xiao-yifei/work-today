@@ -33,6 +33,7 @@ export interface Profile {
   endTime: string
   lunchStartTime: string
   lunchEndTime: string
+  hasLunch: boolean
   memo: string
   goods: GoodsItem[]
   belongings: OwnedItem[]

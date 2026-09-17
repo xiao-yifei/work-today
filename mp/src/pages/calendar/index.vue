@@ -69,7 +69,9 @@ onHide(() => {
 
 <template>
   <view class="page">
-    <text class="eyebrow">CALENDAR</text>
+    <view class="eyebrow">
+      <text>CALENDAR</text>
+    </view>
     <text class="title">{{ monthLabel }}</text>
     <text class="lead">假日、调休按国务院。要改制度或某一天，先点编辑。</text>
 
@@ -142,16 +144,8 @@ onHide(() => {
   padding: 24rpx 32rpx 48rpx;
 }
 
-.eyebrow {
-  display: block;
-  font-size: 22rpx;
-  letter-spacing: 2rpx;
-  color: #8a8478;
-}
-
 .title {
   display: block;
-  margin-top: 8rpx;
   font-size: 48rpx;
   font-weight: 700;
   color: #1c1b18;

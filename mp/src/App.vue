@@ -13,4 +13,15 @@ page {
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue',
     'Microsoft YaHei', sans-serif;
 }
+
+.eyebrow,
+.eyebrow text {
+  display: block;
+  margin-bottom: 8rpx;
+  font-size: 22rpx;
+  font-weight: 400;
+  line-height: 32rpx;
+  letter-spacing: 2rpx;
+  color: #8a8478;
+}
 </style>
