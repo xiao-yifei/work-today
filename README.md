@@ -56,11 +56,11 @@ npm run build:mp-weixin
 
 ```
 ├── docs/notes.md        产品结论
-├── src/
-│   ├── pages/
-│   ├── stores/profile.ts
-│   └── utils/           work.ts · holidays.ts
-└── static/              tabBar 图标
+└── src/
+    ├── pages/
+    ├── static/          tabBar 图标、小荧头像
+    ├── stores/profile.ts
+    └── utils/           work.ts · holidays.ts
 ```
 
 设置保存在本地 `uni.setStorageSync`，键名 `work-today-profile-v1`。
