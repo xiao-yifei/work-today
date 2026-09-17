@@ -456,45 +456,9 @@ onHide(() => {
       </view>
     </view>
 
-    <view :key="tab" class="pane">
-    <view v-if="tab === 'goods'">
-      <view class="toolbar">
-        <text class="earned" @click="!salaryReady && goMe()">
-          {{ salaryReady ? `按今日 ¥${formatMoney(snapshot.earned)}` : '写下月薪后就能换算' }}
-        </text>
-        <view class="edit-btn" @click="toggleEdit">
-          <text>{{ editing ? '完成' : '编辑' }}</text>
-        </view>
-      </view>
-      <view class="tiles">
-        <view v-for="(item, index) in items" :key="item.id" class="tile">
-          <text class="tile-name">{{ item.name }}</text>
-          <view v-if="editing" class="input-wrap">
-            <input
-              type="digit"
-              :value="priceTexts[index]"
-              :cursor-spacing="32"
-              adjust-position
-              @input="onPrice(index, $event)"
-            />
-          </view>
-          <text v-else class="tile-price">¥{{ item.price }}/{{ item.unit }}</text>
-          <text
-            class="tile-count"
-            :class="{ locked: !salaryReady }"
-            @click="!salaryReady && goMe()"
-          >
-            {{ salaryReady ? `${item.count} ${item.unit}` : '写月薪后就能看' }}
-          </text>
-          <text v-if="salaryReady" class="tile-work">{{ item.workLabel }}</text>
-        </view>
-      </view>
-      <text v-if="editing && invalid" class="error">{{ invalid }}</text>
-    </view>
-
-    <view v-else-if="tab === 'cost'">
+    <view v-if="tab === 'cost'">
       <view v-if="costRows.length || editingCost" class="toolbar">
-        <text class="earned">摊到每个上班日</text>
+        <text class="earned">摊到每个上班日 · 本月合计 ¥{{ formatMoney(costMonthly, 0) }}</text>
         <view class="edit-btn" @click="toggleCost">
           <text>{{ editingCost ? '完成' : '编辑' }}</text>
         </view>
@@ -520,7 +484,6 @@ onHide(() => {
         </view>
         <text v-if="salaryReady && costCover" class="hero-sub">{{ costCover }}</text>
         <text v-else-if="!salaryReady" class="hero-sub">写月薪后就能看覆盖进度</text>
-        <text v-if="costMonthly > 0" class="hero-month">本月合计 ¥{{ formatMoney(costMonthly, 0) }}</text>
       </view>
 
       <view v-if="!costRows.length && !editingCost" class="empty" @click="openAdd('cost')">
@@ -565,6 +528,41 @@ onHide(() => {
         </view>
         <text v-if="editingCost && costInvalid" class="error">{{ costInvalid }}</text>
       </view>
+    </view>
+
+    <view v-else-if="tab === 'goods'">
+      <view class="toolbar">
+        <text class="earned" @click="!salaryReady && goMe()">
+          {{ salaryReady ? `按今日 ¥${formatMoney(snapshot.earned)}` : '写下月薪后就能换算' }}
+        </text>
+        <view class="edit-btn" @click="toggleEdit">
+          <text>{{ editing ? '完成' : '编辑' }}</text>
+        </view>
+      </view>
+      <view class="tiles">
+        <view v-for="(item, index) in items" :key="item.id" class="tile">
+          <text class="tile-name">{{ item.name }}</text>
+          <view v-if="editing" class="input-wrap">
+            <input
+              type="digit"
+              :value="priceTexts[index]"
+              :cursor-spacing="32"
+              adjust-position
+              @input="onPrice(index, $event)"
+            />
+          </view>
+          <text v-else class="tile-price">¥{{ item.price }}/{{ item.unit }}</text>
+          <text
+            class="tile-count"
+            :class="{ locked: !salaryReady }"
+            @click="!salaryReady && goMe()"
+          >
+            {{ salaryReady ? `${item.count} ${item.unit}` : '写月薪后就能看' }}
+          </text>
+          <text v-if="salaryReady" class="tile-work">{{ item.workLabel }}</text>
+        </view>
+      </view>
+      <text v-if="editing && invalid" class="error">{{ invalid }}</text>
     </view>
 
     <view v-else>
@@ -619,7 +617,6 @@ onHide(() => {
         <text>+ 加一件</text>
       </view>
       <text v-if="editingStuff && stuffInvalid" class="error">{{ stuffInvalid }}</text>
-    </view>
     </view>
 
     <view v-if="addOpen" class="overlay" @click="closeAdd" @touchmove.stop.prevent>
@@ -714,21 +711,6 @@ onHide(() => {
   color: #f6f1e8;
 }
 
-.pane {
-  animation: pane-in 0.28s ease;
-}
-
-@keyframes pane-in {
-  from {
-    opacity: 0;
-    transform: translateY(12rpx);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .toolbar {
   display: flex;
   align-items: center;
@@ -820,8 +802,7 @@ onHide(() => {
 }
 
 .hero-kicker,
-.hero-sub,
-.hero-month {
+.hero-sub {
   display: block;
   color: rgba(246, 241, 232, 0.62);
   font-size: 22rpx;
@@ -855,23 +836,19 @@ onHide(() => {
 .bar {
   height: 16rpx;
   border-radius: 16rpx;
-  background: rgba(246, 241, 232, 0.16);
+  background: #1c1b18;
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
   border-radius: 16rpx;
-  background: #d7c16a;
+  background: #efe8db;
 }
 
 .hero-sub {
   margin-top: 16rpx;
   color: rgba(246, 241, 232, 0.78);
-}
-
-.hero-month {
-  margin-top: 8rpx;
 }
 
 .card {
