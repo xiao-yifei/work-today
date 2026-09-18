@@ -43,4 +43,5 @@ export interface Profile {
   weekendRule: WeekendRule
   bigWeekAnchor: string
   salaryReady: boolean
+  showAfterCosts: boolean
 }

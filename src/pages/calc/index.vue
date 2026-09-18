@@ -28,7 +28,7 @@ const TABS: { id: CalcTab; label: string }[] = [
 ]
 
 const store = useProfileStore()
-const { now, snapshot } = useWorkDay()
+const { now, snapshot, view } = useWorkDay()
 const salaryReady = computed(() => store.profile.salaryReady)
 const tab = ref<CalcTab>('cost')
 const tabIndex = computed(() => Math.max(0, TABS.findIndex((item) => item.id === tab.value)))
@@ -81,9 +81,9 @@ function syncDraft() {
 
 const source = computed(() => (editing.value ? draft.value : store.profile.goods))
 
-function workTimeLabel(price: number): string {
-  const second = snapshot.value.wage.second
-  const seconds = price / Math.max(second, 1e-9)
+function workTimeLabel(price: number, second = view.value.wage.second): string {
+  if (!(second > 0)) return '扣除支出后不够'
+  const seconds = price / second
   if (seconds < 60) return '不到1分钟'
   return formatDuration(seconds)
 }
@@ -94,7 +94,7 @@ const items = computed(() =>
     const price = Math.max(0, Number(raw) || 0)
     return {
       ...item,
-      count: (snapshot.value.earned / Math.max(1, price || 1)).toFixed(1),
+      count: (Math.max(0, view.value.earned) / Math.max(1, price || 1)).toFixed(1),
       workLabel: `一${item.unit}要上 ${workTimeLabel(price)}`,
     }
   }),
@@ -161,7 +161,7 @@ function syncStuff() {
 
 const stuffRows = computed(() => {
   const source = editingStuff.value ? stuffDraft.value : toStuffDraft(store.profile.belongings)
-  const daily = snapshot.value.daily
+  const daily = view.value.daily
   return source.map((item) => {
     const price = Number(item.priceText)
     let daysLabel = '写月薪后就能看'
@@ -176,6 +176,8 @@ const stuffRows = computed(() => {
       )
       daysLabel = span.label
       spanHint = span.hint
+    } else if (salaryReady.value && price > 0 && !(daily > 0)) {
+      daysLabel = view.value.afterCosts ? '扣除支出后不够' : '写月薪后就能看'
     } else if (salaryReady.value && !(price > 0)) {
       daysLabel = '写下价格就能看'
     }
@@ -361,7 +363,7 @@ const costCover = computed(() => {
   if (snapshot.value.status === 'off') return '今天休息，不算进上班日'
   const gap = Math.max(0, costDaily.value - snapshot.value.earned)
   if (gap <= 0) return '今天的固定支出已覆盖'
-  return `还差 ¥${formatMoney(gap)} · 还要上 ${workTimeLabel(gap)}`
+  return `还差 ¥${formatMoney(gap)} · 还要上 ${workTimeLabel(gap, snapshot.value.wage.second)}`
 })
 
 const costCoverWidth = computed(() => {
@@ -486,12 +488,12 @@ onHide(() => {
         <text v-else-if="!salaryReady" class="hero-sub">写月薪后就能看覆盖进度</text>
       </view>
 
-      <view v-if="!costRows.length && !editingCost" class="empty" @click="openAdd('cost')">
-        <text class="empty-title">加上房租或通勤</text>
-        <text class="empty-sub">看今天先要赚回多少</text>
+      <view v-if="!costRows.length" class="empty" @click="!editingCost && openAdd('cost')">
+        <text class="empty-title">加上房租或月供</text>
+        <text class="empty-sub">{{ editingCost ? '点完成才会删掉' : '看今天先要赚回多少' }}</text>
       </view>
 
-      <view v-if="costRows.length || editingCost" class="card">
+      <view v-if="costRows.length" class="card">
         <view v-for="(item, index) in costRows" :key="item.id" class="row">
           <view class="meta">
             <input
@@ -533,7 +535,7 @@ onHide(() => {
     <view v-else-if="tab === 'goods'">
       <view class="toolbar">
         <text class="earned" @click="!salaryReady && goMe()">
-          {{ salaryReady ? `按今日 ¥${formatMoney(snapshot.earned)}` : '写下月薪后就能换算' }}
+          {{ salaryReady ? `${view.afterCosts ? '按扣除支出后' : '按今日'} ¥${formatMoney(view.earned)}` : '写下月薪后就能换算' }}
         </text>
         <view class="edit-btn" @click="toggleEdit">
           <text>{{ editing ? '完成' : '编辑' }}</text>
@@ -567,15 +569,15 @@ onHide(() => {
 
     <view v-else>
       <view v-if="stuffRows.length || editingStuff" class="toolbar">
-        <text class="earned">一件要上几天班</text>
+        <text class="earned">{{ view.afterCosts ? '按扣除支出后日薪' : '一件要上几天班' }}{{ salaryReady ? ` · ¥${formatMoney(view.daily)}` : '' }}</text>
         <view class="edit-btn" @click="toggleStuff">
           <text>{{ editingStuff ? '完成' : '编辑' }}</text>
         </view>
       </view>
 
-      <view v-if="!stuffRows.length && !editingStuff" class="empty" @click="openAdd('stuff')">
+      <view v-if="!stuffRows.length" class="empty" @click="!editingStuff && openAdd('stuff')">
         <text class="empty-title">想买的东西，换成要上几天班</text>
-        <text class="empty-sub">最多 5 件，点这里加上</text>
+        <text class="empty-sub">{{ editingStuff ? '点完成才会删掉' : '最多 5 件，点这里加上' }}</text>
       </view>
 
       <view v-for="(item, index) in stuffRows" :key="item.id" class="ticket">
@@ -1001,12 +1003,12 @@ onHide(() => {
   height: 72rpx;
   margin-top: 16rpx;
   border-radius: 16rpx;
-  background: #f6f1e8;
+  background: #2b2a26;
 }
 
 .add text {
   font-size: 26rpx;
-  color: #7c6246;
+  color: #f6f1e8;
 }
 
 .error {

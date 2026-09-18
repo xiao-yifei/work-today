@@ -19,19 +19,19 @@ import { openCalc } from '../../composables/useCalcTab'
 import { useWorkDay } from '../../composables/useWorkDay'
 import { useProfileStore } from '../../stores/profile'
 import {
-    companionText,
-    formatClock,
-    formatDateLabel,
-    formatDuration,
-    formatMoney,
-    formatWage,
-    heroSubtitle,
-    heroTitle,
-    statusLabel,
+  companionText,
+  formatClock,
+  formatDateLabel,
+  formatDuration,
+  formatMoney,
+  formatWage,
+  heroSubtitle,
+  heroTitle,
+  statusLabel,
 } from '../../utils/work'
 
 const store = useProfileStore()
-const { now, snapshot } = useWorkDay()
+const { now, snapshot, view } = useWorkDay()
 
 const resting = computed(() => snapshot.value.status === 'off')
 const ended = computed(() => snapshot.value.status === 'after' || snapshot.value.status === 'off')
@@ -44,8 +44,8 @@ const workedLabel = computed(() =>
 )
 const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
-const coffeeCount = computed(() => (snapshot.value.earned / store.coffee.price).toFixed(1))
-const lunchCount = computed(() => (snapshot.value.earned / store.lunch.price).toFixed(1))
+const coffeeCount = computed(() => (Math.max(0, view.value.earned) / store.coffee.price).toFixed(1))
+const lunchCount = computed(() => (Math.max(0, view.value.earned) / store.lunch.price).toFixed(1))
 const editingMemo = ref(false)
 
 function goTab(url: string) {
@@ -92,17 +92,17 @@ onHide(() => {
           :class="{ locked: !salaryReady }"
           @click="!salaryReady && goTab('/pages/me/index')"
         >
-          {{ salaryReady ? `¥${formatMoney(resting ? snapshot.monthEarned : snapshot.earned)}` : '写月薪后就能看' }}
+          {{ salaryReady ? `¥${formatMoney(resting ? view.monthEarned : view.earned)}` : '写月薪后就能看' }}
         </text>
-        <text class="hero-sub">{{ heroSubtitle(snapshot.status) }}</text>
+        <text class="hero-sub">{{ view.afterCosts && ended && salaryReady ? '扣除固定支出后' : heroSubtitle(snapshot.status) }}</text>
         <view class="earn">
           <template v-if="!ended">
-            <text class="earn-label">今日已赚</text>
-            <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(snapshot.earned) }}</text>
+            <text class="earn-label">{{ view.afterCosts ? '扣除支出后' : '今日已赚' }}</text>
+            <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(view.earned) }}</text>
             <text v-else class="earn-value locked" @click="goTab('/pages/me/index')">写月薪后就能看</text>
           </template>
           <text class="month" @click="goTab(salaryReady ? '/pages/calendar/index' : '/pages/me/index')">
-            已上 {{ snapshot.workedDays }} 天{{ salaryReady && !ended ? ` · ¥${formatMoney(snapshot.monthEarned)}` : '' }} ›
+            已上 {{ snapshot.workedDays }} 天{{ salaryReady && !ended ? ` · ¥${formatMoney(view.monthEarned)}` : '' }} ›
           </text>
         </view>
       </view>
@@ -131,15 +131,15 @@ onHide(() => {
 
     <view v-if="salaryReady" class="card wage">
       <view class="wage-item">
-        <text class="wage-num">¥ {{ formatWage(snapshot.wage.hourly) }}</text>
+        <text class="wage-num">¥ {{ formatWage(view.wage.hourly) }}</text>
         <text class="wage-label">每小时工资</text>
       </view>
       <view class="wage-item">
-        <text class="wage-num">¥ {{ formatWage(snapshot.wage.minute) }}</text>
+        <text class="wage-num">¥ {{ formatWage(view.wage.minute) }}</text>
         <text class="wage-label">每分钟工资</text>
       </view>
       <view class="wage-item last">
-        <text class="wage-num">¥ {{ formatWage(snapshot.wage.second, 3) }}</text>
+        <text class="wage-num">¥ {{ formatWage(view.wage.second, 3) }}</text>
         <text class="wage-label">每秒工资</text>
       </view>
     </view>

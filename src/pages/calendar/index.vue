@@ -28,7 +28,7 @@ import {
 } from '../../utils/work'
 
 const store = useProfileStore()
-const { now, snapshot } = useWorkDay()
+const { now, snapshot, view } = useWorkDay()
 const salaryReady = computed(() => store.profile.salaryReady)
 const monthLabel = computed(() => `${now.value.getMonth() + 1}月出勤`)
 const schedule = computed(() => restScheduleFrom(store.profile))
@@ -83,8 +83,8 @@ onHide(() => {
     <text class="lead">假日、调休按国务院。要改制度或某一天，先点编辑。</text>
 
     <view class="card" @click="!salaryReady && goMe()">
-      <text class="muted">本月累计</text>
-      <text class="big">{{ salaryReady ? `¥${formatMoney(snapshot.monthEarned)}` : '写月薪后就能看' }}</text>
+      <text class="muted">{{ view.afterCosts ? '本月累计 · 已扣固定支出' : '本月累计' }}</text>
+      <text class="big">{{ salaryReady ? `¥${formatMoney(view.monthEarned)}` : '写月薪后就能看' }}</text>
       <text class="muted">本月上班 {{ snapshot.workDays }} 天，已上班 {{ snapshot.workedDays }} 天</text>
     </view>
 

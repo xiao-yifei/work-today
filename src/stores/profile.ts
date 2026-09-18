@@ -29,6 +29,7 @@ export const defaultProfile: Profile = {
   weekendRule: 'double',
   bigWeekAnchor: '',
   salaryReady: false,
+  showAfterCosts: false,
 }
 
 const MAX_BELONGINGS = 5
@@ -112,6 +113,7 @@ function loadProfile(): Profile {
       hasLunch: parsed.hasLunch !== false,
       weekendRule: normalizeWeekendRule(parsed.weekendRule),
       bigWeekAnchor: typeof parsed.bigWeekAnchor === 'string' ? parsed.bigWeekAnchor : '',
+      showAfterCosts: parsed.showAfterCosts === true,
     }
   } catch {
     return emptyProfile()
@@ -144,7 +146,12 @@ export const useProfileStore = defineStore('profile', () => {
       bigWeekAnchor: typeof next.bigWeekAnchor === 'string' ? next.bigWeekAnchor : profile.value.bigWeekAnchor,
       hasLunch: next.hasLunch !== false,
       salaryReady: next.salaryReady,
+      showAfterCosts: next.showAfterCosts === true,
     }
+  }
+
+  function setShowAfterCosts(on: boolean) {
+    profile.value = { ...profile.value, showAfterCosts: on }
   }
 
   function setWeekendRule(rule: WeekendRule, now = new Date()) {
@@ -200,5 +207,5 @@ export const useProfileStore = defineStore('profile', () => {
     })
   }
 
-  return { profile, coffee, lunch, save, setMemo, setDateOff, setWeekendRule, setThisWeekBig, reset }
+  return { profile, coffee, lunch, save, setMemo, setShowAfterCosts, setDateOff, setWeekendRule, setThisWeekBig, reset }
 })

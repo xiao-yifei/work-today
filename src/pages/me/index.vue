@@ -16,7 +16,7 @@ import { storeToRefs } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import { useProfileStore } from '../../stores/profile'
 import type { Profile } from '../../types'
-import { countWorkDaysInMonth, dailySalary, formatMoney, restScheduleFrom, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
+import { countWorkDaysInMonth, dailyFixedShare, dailySalary, formatMoney, monthlyFixedTotal, restScheduleFrom, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
 
 const store = useProfileStore()
 const { profile } = storeToRefs(store)
@@ -35,10 +35,11 @@ const form = reactive<Profile>({
   fixedCosts: profile.value.fixedCosts.map((item) => ({ ...item })),
   offDates: [...profile.value.offDates],
   workDates: [...profile.value.workDates],
-  weekendRule: profile.value.weekendRule,
-  bigWeekAnchor: profile.value.bigWeekAnchor,
-  salaryReady: profile.value.salaryReady,
-})
+    weekendRule: profile.value.weekendRule,
+    bigWeekAnchor: profile.value.bigWeekAnchor,
+    salaryReady: profile.value.salaryReady,
+    showAfterCosts: profile.value.showAfterCosts,
+  })
 
 const workDays = computed(() =>
   countWorkDaysInMonth(new Date(), store.profile.offDates, store.profile.workDates, restScheduleFrom(store.profile)),
@@ -47,8 +48,19 @@ const workDays = computed(() =>
 const preview = computed(() => {
   const total = workSecondsFromTimes(form.startTime, form.endTime, form.lunchStartTime, form.lunchEndTime, form.hasLunch)
   const daily = dailySalary(Number(salaryText.value) || 0, workDays.value)
-  return wagesFromDaily(daily, total)
+  const monthlyFixed = monthlyFixedTotal(store.profile.fixedCosts)
+  const usedDaily =
+    store.profile.showAfterCosts && monthlyFixed > 0
+      ? daily - dailyFixedShare(monthlyFixed, workDays.value)
+      : daily
+  return {
+    daily: usedDaily,
+    ...wagesFromDaily(usedDaily, total),
+  }
 })
+
+const hasFixedCosts = computed(() => monthlyFixedTotal(store.profile.fixedCosts) > 0)
+const previewAfterCosts = computed(() => store.profile.showAfterCosts && hasFixedCosts.value)
 
 const salaryText = ref(profile.value.salaryReady ? String(profile.value.monthlySalary) : '')
 
@@ -84,6 +96,7 @@ function persist() {
     weekendRule: store.profile.weekendRule,
     bigWeekAnchor: store.profile.bigWeekAnchor,
     salaryReady: hasSalary ? true : store.profile.salaryReady,
+    showAfterCosts: store.profile.showAfterCosts,
   })
 }
 
@@ -125,6 +138,10 @@ function setHasLunch(on: boolean) {
   dirty.value = true
   persist()
 }
+
+function setShowAfterCosts(on: boolean) {
+  store.setShowAfterCosts(on)
+}
 </script>
 
 <template>
@@ -136,9 +153,9 @@ function setHasLunch(on: boolean) {
     <text class="lead">改完会存到本地。休息日和上班天数在日历里改。</text>
 
     <view class="card">
-      <text class="muted">{{ previewReady ? '按当前月薪和日历上班天数，时薪约为' : '写下月薪后就能看时薪' }}</text>
+      <text class="muted">{{ previewReady ? (previewAfterCosts ? '扣掉固定支出后，时薪约为' : '按当前月薪和日历上班天数，时薪约为') : '写下月薪后就能看时薪' }}</text>
       <text class="big">{{ previewReady ? `¥${formatMoney(preview.hourly)}` : '写月薪后就能看' }}</text>
-      <text class="muted">本月上班 {{ workDays }} 天，在日历里改</text>
+      <text class="muted">本月上班 {{ workDays }} 天{{ previewReady ? `，日薪约 ¥${formatMoney(preview.daily)}` : '' }}。</text>
     </view>
 
     <view class="card form">
@@ -190,10 +207,16 @@ function setHasLunch(on: boolean) {
           </picker>
         </view>
       </view>
+      <view class="switch-row last">
+        <text class="label">扣除支出</text>
+        <view class="switch" :class="{ on: store.profile.showAfterCosts }" @click="setShowAfterCosts(!store.profile.showAfterCosts)">
+          <view class="knob" />
+        </view>
+      </view>
       <text v-if="invalid" class="error">{{ invalid }}</text>
     </view>
 
-    <text class="privacy">小荧提示：你的信息只收在本地哦，谁问我也不说。</text>
+    <text class="privacy">小荧提示：你的信息只收在本地哦。</text>
   </view>
 </template>
 
@@ -291,6 +314,10 @@ function setHasLunch(on: boolean) {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 24rpx;
+}
+
+.switch-row.last {
+  margin-bottom: 0;
 }
 
 .switch-row .label {

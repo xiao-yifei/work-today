@@ -192,13 +192,17 @@ export function dailyFixedShare(monthlyTotal: number, workDays: number): number 
   return Math.max(0, monthlyTotal) / workDays
 }
 
+export function monthlyFixedTotal(items: Array<{ price?: number }> = []): number {
+  return items.reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0), 0)
+}
+
 export function summarizeFixedCosts(
   items: Array<{ price?: number }>,
   workDays: number,
   earned: number,
   status: WorkStatus,
 ) {
-  const monthly = items.reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0), 0)
+  const monthly = monthlyFixedTotal(items)
   const daily = dailyFixedShare(monthly, workDays)
   return {
     monthly,
@@ -470,7 +474,18 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const workDays = countWorkDaysInMonth(now, offDates, workDates, schedule)
   const daily = dailySalary(profile.monthlySalary, workDays)
   const wage = wagesFromDaily(daily, total)
+  const monthlyFixed = monthlyFixedTotal(profile.fixedCosts)
+  const dailyFixed = dailyFixedShare(monthlyFixed, workDays)
+  const netDaily = daily - dailyFixed
+  const netWage = wagesFromDaily(netDaily, total)
   const pastWorkedDays = countWorkedDaysSoFar(now, offDates, workDates, false, schedule)
+  const payExtra = {
+    monthlyFixed,
+    dailyFixed,
+    hasFixedCosts: monthlyFixed > 0,
+    netDaily,
+    netWage,
+  }
 
   if (isOffDay(now, offDates, workDates, schedule)) {
     return {
@@ -489,6 +504,9 @@ export function computeWorkDay(now: Date, profile: Profile) {
       workDays,
       workedDays: pastWorkedDays,
       monthEarned: monthTotal(now, daily, 0, workDays, offDates, workDates, schedule),
+      netEarned: 0,
+      netMonthEarned: monthTotal(now, netDaily, 0, workDays, offDates, workDates, schedule),
+      ...payExtra,
     }
   }
 
@@ -496,6 +514,7 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const worked = getWorkedSeconds(now, start, lunchStart, lunchEnd, end, status)
   const remaining = getRemainingSeconds(now, start, lunchStart, lunchEnd, end, status)
   const earned = worked * wage.second
+  const netEarned = worked * netWage.second
   const progress = Math.min(1, worked / total)
   const workedDays = countWorkedDaysSoFar(now, offDates, workDates, status !== 'before', schedule)
 
@@ -515,5 +534,8 @@ export function computeWorkDay(now: Date, profile: Profile) {
     workDays,
     workedDays,
     monthEarned: monthTotal(now, daily, earned, workDays, offDates, workDates, schedule),
+    netEarned,
+    netMonthEarned: monthTotal(now, netDaily, netEarned, workDays, offDates, workDates, schedule),
+    ...payExtra,
   }
 }
