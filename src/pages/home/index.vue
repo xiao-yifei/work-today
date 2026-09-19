@@ -23,6 +23,7 @@ import {
   formatClock,
   formatDateLabel,
   formatDuration,
+  formatHHmm,
   formatMoney,
   formatWage,
   heroSubtitle,
@@ -34,18 +35,51 @@ const store = useProfileStore()
 const { now, snapshot, view } = useWorkDay()
 
 const resting = computed(() => snapshot.value.status === 'off')
-const ended = computed(() => snapshot.value.status === 'after' || snapshot.value.status === 'off')
+const awaiting = computed(() => snapshot.value.status === 'awaiting')
+const idle = computed(() =>
+  snapshot.value.status === 'off' ||
+  snapshot.value.status === 'after' ||
+  snapshot.value.status === 'before' ||
+  awaiting.value,
+)
 const dateLabel = computed(() => formatDateLabel(now.value))
 const salaryReady = computed(() => store.profile.salaryReady)
 
-const clockText = computed(() => formatClock(snapshot.value.remaining))
+const clockText = computed(() => {
+  if (snapshot.value.status === 'off' || snapshot.value.status === 'after') return '00:00:00'
+  return formatClock(snapshot.value.remaining)
+})
 const workedLabel = computed(() =>
   resting.value ? '今日休息' : `已工作 ${formatDuration(snapshot.value.worked)}`,
 )
 const progressPct = computed(() => Math.round(snapshot.value.progress * 100))
 const progressWidth = computed(() => `${snapshot.value.progress * 100}%`)
-const coffeeCount = computed(() => (Math.max(0, view.value.earned) / store.coffee.price).toFixed(1))
-const lunchCount = computed(() => (Math.max(0, view.value.earned) / store.lunch.price).toFixed(1))
+const endLabel = computed(() =>
+  snapshot.value.overtimeMinutes ? formatHHmm(snapshot.value.end) : store.profile.endTime,
+)
+const showLunchMeta = computed(() => store.profile.hasLunch && snapshot.value.status === 'lunch')
+const showOtMeta = computed(() =>
+  snapshot.value.overtimeMinutes > 0 &&
+  (snapshot.value.status === 'overtime' || snapshot.value.status === 'after'),
+)
+const liveWage = computed(() => {
+  const hourly = snapshot.value.overtimeHourly
+  if (snapshot.value.status === 'overtime' && hourly > 0) {
+    return {
+      hourly,
+      minute: hourly / 60,
+      second: hourly / 3600,
+    }
+  }
+  return view.value.wage
+})
+const goods = computed(() =>
+  store.profile.goods.slice(0, 2).map((item) => ({
+    ...item,
+    mark: [...(item.name.trim() || '·')][0],
+    count: (Math.max(0, view.value.earned) / Math.max(1, item.price || 1)).toFixed(1),
+  })),
+)
 const editingMemo = ref(false)
 
 function goTab(url: string) {
@@ -71,11 +105,11 @@ onHide(() => {
   <view class="page">
     <view class="top">
       <view class="eyebrow">
-        <text>WORK TODAY 今天也很棒</text>
+        <text>WORKDAY · SPROUT</text>
       </view>
       <view class="title-row">
         <text class="date">{{ dateLabel }}</text>
-        <view class="badge" :class="{ rest: resting }" @click="goTab(resting ? '/pages/calendar/index' : '/pages/me/index')">
+        <view class="badge" :class="{ rest: resting }" @click="goTab(resting || snapshot.status === 'overtime' || awaiting ? '/pages/calendar/index' : '/pages/me/index')">
           <view class="dot" />
           <text class="badge-text">{{ statusLabel(snapshot.status) }}</text>
         </view>
@@ -85,24 +119,18 @@ onHide(() => {
     <view class="hero">
       <view class="hero-copy">
         <text class="hero-kicker">{{ heroTitle(snapshot.status) }}</text>
-        <text v-if="!ended" class="hero-clock">{{ clockText }}</text>
-        <text
-          v-else
-          class="hero-clock"
-          :class="{ locked: !salaryReady }"
-          @click="!salaryReady && goTab('/pages/me/index')"
-        >
-          {{ salaryReady ? `¥${formatMoney(resting ? view.monthEarned : view.earned)}` : '写月薪后就能看' }}
-        </text>
-        <text class="hero-sub">{{ view.afterCosts && ended && salaryReady ? '扣除固定支出后' : heroSubtitle(snapshot.status) }}</text>
+        <text class="hero-clock">{{ clockText }}</text>
+        <text class="hero-sub">{{
+          snapshot.status === 'overtime' && snapshot.overtimeHourly
+            ? `多待的这段，按 ¥${formatMoney(snapshot.overtimeHourly, 0)}/小时算`
+            : heroSubtitle(snapshot.status)
+        }}</text>
         <view class="earn">
-          <template v-if="!ended">
-            <text class="earn-label">{{ view.afterCosts ? '扣除支出后' : '今日已赚' }}</text>
-            <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(view.earned) }}</text>
-            <text v-else class="earn-value locked" @click="goTab('/pages/me/index')">写月薪后就能看</text>
-          </template>
+          <text class="earn-label">{{ !idle && view.afterCosts ? '扣除支出后' : '今日已赚' }}</text>
+          <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(view.earned) }}</text>
+          <text v-else class="earn-value locked" @click="goTab('/pages/me/index')">写月薪后就能看</text>
           <text class="month" @click="goTab(salaryReady ? '/pages/calendar/index' : '/pages/me/index')">
-            已上 {{ snapshot.workedDays }} 天{{ salaryReady && !ended ? ` · ¥${formatMoney(view.monthEarned)}` : '' }} ›
+            已上 {{ snapshot.workedDays }} 天{{ salaryReady ? ` · ¥${formatMoney(view.monthEarned)}` : '' }} ›
           </text>
         </view>
       </view>
@@ -122,30 +150,33 @@ onHide(() => {
       <view class="bar-meta">
         <text>{{ store.profile.startTime }}</text>
         <text>{{ workedLabel }}</text>
-        <text>{{ store.profile.endTime }}</text>
+        <text>{{ endLabel }}</text>
       </view>
-      <text v-if="store.profile.hasLunch" class="lunch-meta">
+      <text v-if="showLunchMeta" class="lunch-meta">
         午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时
+      </text>
+      <text v-if="showOtMeta" class="lunch-meta">
+        含加班 {{ formatDuration(snapshot.overtimeMinutes * 60) }}{{
+          snapshot.overtimeStart && snapshot.overtimeStart !== store.profile.endTime ? `，从 ${snapshot.overtimeStart} 起` : ''
+        }}，{{
+          snapshot.overtimeHourly ? `按 ¥${formatMoney(snapshot.overtimeHourly, 0)}/小时算` : '按平时秒薪算'
+        }}
       </text>
     </view>
 
     <view v-if="salaryReady" class="card wage">
       <view class="wage-item">
-        <text class="wage-num">¥ {{ formatWage(view.wage.hourly) }}</text>
+        <text class="wage-num">¥ {{ formatWage(liveWage.hourly) }}</text>
         <text class="wage-label">每小时工资</text>
       </view>
       <view class="wage-item">
-        <text class="wage-num">¥ {{ formatWage(view.wage.minute) }}</text>
+        <text class="wage-num">¥ {{ formatWage(liveWage.minute) }}</text>
         <text class="wage-label">每分钟工资</text>
       </view>
       <view class="wage-item last">
-        <text class="wage-num">¥ {{ formatWage(view.wage.second, 3) }}</text>
+        <text class="wage-num">¥ {{ formatWage(liveWage.second, 3) }}</text>
         <text class="wage-label">每秒工资</text>
       </view>
-    </view>
-    <view v-else class="card locked-card" @click="goTab('/pages/me/index')">
-      <text class="card-title">时薪</text>
-      <text class="locked-text">写月薪后就能看</text>
     </view>
 
     <view class="card">
@@ -155,23 +186,14 @@ onHide(() => {
       </view>
       <text v-if="salaryReady" class="hint">把今天的努力，换成生活里的小确幸</text>
       <text v-else class="hint locked-text" @click="goTab('/pages/me/index')">写月薪后就能看</text>
-      <view v-if="salaryReady" class="goods">
-        <view class="good">
+      <view v-if="salaryReady && goods.length" class="goods">
+        <view v-for="item in goods" :key="item.id" class="good">
           <view class="good-icon">
-            <text>咖</text>
+            <text>{{ item.mark }}</text>
           </view>
           <view>
-            <text class="good-num">{{ coffeeCount }} {{ store.coffee.unit }}</text>
-            <text class="good-sub">¥{{ store.coffee.price }}/{{ store.coffee.unit }}</text>
-          </view>
-        </view>
-        <view class="good">
-          <view class="good-icon">
-            <text>午</text>
-          </view>
-          <view>
-            <text class="good-num">{{ lunchCount }} {{ store.lunch.unit }}</text>
-            <text class="good-sub">¥{{ store.lunch.price }}/{{ store.lunch.unit }}</text>
+            <text class="good-num">{{ item.count }} {{ item.unit }}</text>
+            <text class="good-sub">{{ item.name }} · ¥{{ item.price }}/{{ item.unit }}</text>
           </view>
         </view>
       </view>
@@ -197,7 +219,7 @@ onHide(() => {
 
     <view class="card companion">
       <view class="companion-copy">
-        <text class="card-title">小荧陪你</text>
+        <text class="card-title">小芽陪你</text>
         <text class="companion-text">{{ companionText(snapshot.status, snapshot.remaining) }}</text>
       </view>
       <MascotFace />
@@ -282,11 +304,6 @@ onHide(() => {
   line-height: 1.1;
 }
 
-.hero-clock.locked {
-  font-size: 34rpx;
-  font-weight: 600;
-}
-
 .earn {
   margin-top: 40rpx;
 }
@@ -366,12 +383,6 @@ onHide(() => {
   color: #9a9488;
 }
 
-.locked-card {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
 .locked-text {
   color: #7c6246;
   font-size: 26rpx;
@@ -414,21 +425,22 @@ onHide(() => {
 }
 
 .goods {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
 }
 
 .good {
-  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   padding: 20rpx;
-  margin-right: 16rpx;
   border-radius: 24rpx;
   background: #f6f1e8;
 }
 
-.good:last-child {
-  margin-right: 0;
+.good > view:last-child {
+  min-width: 0;
 }
 
 .good-icon {
@@ -459,6 +471,9 @@ onHide(() => {
   margin-top: 4rpx;
   font-size: 20rpx;
   color: #8a8478;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .edit-btn {

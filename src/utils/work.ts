@@ -1,4 +1,4 @@
-import type { Profile, WeekendRule, WeekendSchedule, WorkStatus } from '../types';
+import type { OvertimeEntry, OvertimeMap, Profile, WeekendRule, WeekendSchedule, WorkStatus } from '../types'
 import { isDefaultOffDay, isHolidayOff, isHolidayWork } from './holidays';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
@@ -13,10 +13,94 @@ export function hhmmToSeconds(hhmm: string): number {
   return hours * 3600 + minutes * 60
 }
 
+export const MAX_OVERTIME_MINUTES = 8 * 60
+
 export function atTime(base: Date, hhmm: string): Date {
   const { hours, minutes } = parseHHmm(hhmm)
   const next = new Date(base)
   next.setHours(hours, minutes, 0, 0)
+  return next
+}
+
+export function formatHHmm(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+export function minutesToHHmm(minutes: number): string {
+  const safe = Math.max(0, Math.min(MAX_OVERTIME_MINUTES, Math.round(minutes) || 0))
+  const hours = Math.floor(safe / 60)
+  const mins = safe % 60
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+}
+
+export function hhmmToMinutes(hhmm: string): number {
+  const { hours, minutes } = parseHHmm(hhmm)
+  return Math.max(0, Math.min(MAX_OVERTIME_MINUTES, hours * 60 + minutes))
+}
+
+export function addMinutes(base: Date, minutes: number): Date {
+  return new Date(base.getTime() + Math.max(0, minutes) * 60 * 1000)
+}
+
+function asOvertimeEntry(raw: unknown): OvertimeEntry | null {
+  if (typeof raw === 'number') {
+    const minutes = Math.min(MAX_OVERTIME_MINUTES, Math.round(raw) || 0)
+    return minutes > 0 ? { minutes } : null
+  }
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as Partial<OvertimeEntry>
+  const minutes = Math.min(MAX_OVERTIME_MINUTES, Math.round(Number(value.minutes) || 0))
+  if (!(minutes > 0)) return null
+  const hourly = Number(value.hourly) || 0
+  const startTime = normalizeHHmm(value.startTime)
+  return {
+    minutes,
+    ...(hourly > 0 ? { hourly } : {}),
+    ...(startTime ? { startTime } : {}),
+  }
+}
+
+export function normalizeHHmm(value?: string): string {
+  if (!value || !/^\d{1,2}:\d{2}$/.test(value)) return ''
+  const { hours, minutes } = parseHHmm(value)
+  if (hours > 23 || minutes > 59) return ''
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+export function overtimeStartTime(entry: OvertimeEntry, scheduledEnd: string): string {
+  return normalizeHHmm(entry.startTime) || scheduledEnd
+}
+
+export function overtimeClockStart(entry: OvertimeEntry, scheduledEnd: string): string {
+  const start = overtimeStartTime(entry, scheduledEnd)
+  return hhmmToSeconds(start) < hhmmToSeconds(scheduledEnd) ? scheduledEnd : start
+}
+
+export function overtimeEntryOf(overtime: OvertimeMap | undefined, date: Date): OvertimeEntry {
+  return asOvertimeEntry(overtime?.[dateKey(date)]) ?? { minutes: 0 }
+}
+
+export function overtimeMinutesOf(overtime: OvertimeMap | undefined, date: Date): number {
+  return overtimeEntryOf(overtime, date).minutes
+}
+
+export function overtimeSecondRate(entry: OvertimeEntry, fallbackSecond: number): number {
+  return entry.hourly && entry.hourly > 0 ? entry.hourly / 3600 : fallbackSecond
+}
+
+export function overtimePay(entry: OvertimeEntry, fallbackSecond: number): number {
+  if (!(entry.minutes > 0)) return 0
+  return entry.minutes * 60 * overtimeSecondRate(entry, fallbackSecond)
+}
+
+export function normalizeOvertime(raw: unknown): OvertimeMap {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const next: OvertimeMap = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue
+    const entry = asOvertimeEntry(value)
+    if (entry) next[key] = entry
+  }
   return next
 }
 
@@ -58,20 +142,45 @@ export function scheduleError(
   return ''
 }
 
-export function getStatus(now: Date, start: Date, lunchStart: Date, lunchEnd: Date, end: Date): WorkStatus {
+export function getStatus(
+  now: Date,
+  start: Date,
+  lunchStart: Date,
+  lunchEnd: Date,
+  scheduledEnd: Date,
+  otStart = scheduledEnd,
+  otEnd = scheduledEnd,
+): WorkStatus {
   if (now.getTime() < start.getTime()) return 'before'
-  if (now.getTime() >= end.getTime()) return 'after'
+  if (now.getTime() >= otEnd.getTime()) return 'after'
+  if (now.getTime() >= otStart.getTime() && now.getTime() < otEnd.getTime()) return 'overtime'
+  if (now.getTime() >= scheduledEnd.getTime()) return otStart.getTime() > scheduledEnd.getTime() ? 'awaiting' : 'after'
   if (now.getTime() >= lunchStart.getTime() && now.getTime() < lunchEnd.getTime()) return 'lunch'
   return 'working'
 }
 
-export function getWorkedSeconds(now: Date, start: Date, lunchStart: Date, lunchEnd: Date, end: Date, status: WorkStatus): number {
-  const total = Math.max(1, secondsBetween(start, end) - secondsBetween(lunchStart, lunchEnd))
+export function getWorkedSeconds(
+  now: Date,
+  start: Date,
+  lunchStart: Date,
+  lunchEnd: Date,
+  scheduledEnd: Date,
+  status: WorkStatus,
+  overtimeSeconds = 0,
+  otStart = scheduledEnd,
+): number {
+  const standard = Math.max(1, secondsBetween(start, scheduledEnd) - secondsBetween(lunchStart, lunchEnd))
+  const extra = Math.max(0, overtimeSeconds)
   if (status === 'before') return 0
-  if (status === 'after') return total
+  if (status === 'after' || status === 'awaiting') {
+    return now.getTime() >= otStart.getTime() ? standard + extra : standard
+  }
+  if (status === 'overtime') {
+    return standard + Math.min(extra, secondsBetween(otStart, now))
+  }
   const elapsed = secondsBetween(start, now)
   const lunchTaken = overlapSeconds(start, now, lunchStart, lunchEnd)
-  return Math.min(total, Math.max(0, elapsed - lunchTaken))
+  return Math.min(standard, Math.max(0, elapsed - lunchTaken))
 }
 
 export function getRemainingSeconds(
@@ -79,14 +188,18 @@ export function getRemainingSeconds(
   start: Date,
   lunchStart: Date,
   lunchEnd: Date,
-  end: Date,
+  scheduledEnd: Date,
   status: WorkStatus,
+  otEnd = scheduledEnd,
+  otStart = scheduledEnd,
 ): number {
   if (status === 'before') return secondsBetween(now, start)
   if (status === 'after') return 0
+  if (status === 'awaiting') return secondsBetween(now, otStart)
   if (status === 'lunch') return secondsBetween(now, lunchEnd)
+  if (status === 'overtime') return secondsBetween(now, otEnd)
   const leftoverLunch = now.getTime() < lunchStart.getTime() ? secondsBetween(lunchStart, lunchEnd) : 0
-  return Math.max(0, secondsBetween(now, end) - leftoverLunch)
+  return Math.max(0, secondsBetween(now, scheduledEnd) - leftoverLunch)
 }
 
 export function formatClock(totalSeconds: number): string {
@@ -321,6 +434,7 @@ export interface MonthDay {
   isOff: boolean
   isHoliday: boolean
   isMakeup: boolean
+  isOvertime: boolean
 }
 
 export function buildMonthDays(
@@ -328,6 +442,7 @@ export function buildMonthDays(
   offDates: string[] = [],
   workDates: string[] = [],
   schedule: WeekendSchedule = {},
+  overtime: OvertimeMap = {},
 ): Array<MonthDay | null> {
   const year = now.getFullYear()
   const month = now.getMonth()
@@ -346,6 +461,7 @@ export function buildMonthDays(
       isOff: isOffDay(date, offDates, workDates, schedule),
       isHoliday: isHolidayOff(key),
       isMakeup: isHolidayWork(key),
+      isOvertime: !isOffDay(date, offDates, workDates, schedule) && overtimeMinutesOf(overtime, date) > 0,
     })
   }
   return cells
@@ -394,6 +510,46 @@ export function countWorkedDaysSoFar(
   return countWeekdaysUntilYesterday(now, offDates, workDates, schedule) + (includeToday ? 1 : 0)
 }
 
+export function pastOvertimePay(
+  now: Date,
+  overtime: OvertimeMap = {},
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+  fallbackSecond: number,
+): number {
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const today = now.getDate()
+  let pay = 0
+  for (let day = 1; day < today; day += 1) {
+    const date = new Date(year, month, day)
+    if (isOffDay(date, offDates, workDates, schedule)) continue
+    pay += overtimePay(overtimeEntryOf(overtime, date), fallbackSecond)
+  }
+  return pay
+}
+
+export function monthOvertimePay(
+  now: Date,
+  overtime: OvertimeMap = {},
+  offDates: string[] = [],
+  workDates: string[] = [],
+  schedule: WeekendSchedule = {},
+  fallbackSecond: number,
+): number {
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const last = new Date(year, month + 1, 0).getDate()
+  let pay = 0
+  for (let day = 1; day <= last; day += 1) {
+    const date = new Date(year, month, day)
+    if (isOffDay(date, offDates, workDates, schedule)) continue
+    pay += overtimePay(overtimeEntryOf(overtime, date), fallbackSecond)
+  }
+  return pay
+}
+
 export function monthTotal(
   now: Date,
   daily: number,
@@ -402,18 +558,25 @@ export function monthTotal(
   offDates: string[] = [],
   workDates: string[] = [],
   schedule: WeekendSchedule = {},
+  pastOvertimePay = 0,
 ): number {
   const pastDays = Math.min(countWeekdaysUntilYesterday(now, offDates, workDates, schedule), workDaysPerMonth)
-  return pastDays * daily + todayEarned
+  return pastDays * daily + pastOvertimePay + todayEarned
 }
 
 export function formatMoney(value: number, digits = 2): string {
   const safe = Number.isFinite(value) ? value : 0
   const negative = safe < 0
-  const [intPart, fracPart] = Math.abs(safe).toFixed(digits).split('.')
-  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  const body = fracPart === undefined ? grouped : `${grouped}.${fracPart}`
-  return negative ? `-${body}` : body
+  const abs = Math.abs(safe)
+  const places = Math.max(0, Math.floor(digits))
+  const factor = 10 ** places
+  const scaled = Math.round(abs * factor)
+  const grouped = String(Math.floor(scaled / factor)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (places === 0 || scaled % factor === 0) {
+    return negative ? `-${grouped}` : grouped
+  }
+  const frac = String(scaled % factor).padStart(places, '0')
+  return `${negative ? '-' : ''}${grouped}.${frac}`
 }
 
 export function formatWage(value: number, digits = 2): string {
@@ -424,7 +587,9 @@ export function statusLabel(status: WorkStatus): string {
   if (status === 'off') return '今天休息'
   if (status === 'before') return '未上班'
   if (status === 'after') return '已下班'
+  if (status === 'awaiting') return '已下班'
   if (status === 'lunch') return '午休中'
+  if (status === 'overtime') return '加班中'
   return '正在上班'
 }
 
@@ -432,25 +597,31 @@ export function heroTitle(status: WorkStatus): string {
   if (status === 'off') return '今日休息'
   if (status === 'before') return '距离上班还有'
   if (status === 'after') return '今日已收工'
+  if (status === 'awaiting') return '距离加班还有'
   if (status === 'lunch') return '距离午休结束还有'
+  if (status === 'overtime') return '加班中，距离下班还有'
   return '距离下班还有'
 }
 
 export function heroSubtitle(status: WorkStatus): string {
   if (status === 'off') return '不算工时，好好过一天'
   if (status === 'before') return '先准备好，不慌不忙'
-  if (status === 'after') return '今天也很棒，好好休息'
+  if (status === 'after') return '收工了，去干点想干的'
+  if (status === 'awaiting') return '这段不计加班，到点再算'
   if (status === 'lunch') return '先吃饭，这段时间不计薪'
-  return '今天也快熬过去了 ♡'
+  if (status === 'overtime') return '多待的这段，按平时秒薪算'
+  return '再撑一会儿就下班了'
 }
 
 export function companionText(status: WorkStatus, remaining: number): string {
   if (status === 'off') return '今天不上班，我陪你趴着。'
   if (status === 'before') return '还没开工，我先趴一会儿。'
   if (status === 'after') return '收工啦，今天也辛苦了。'
+  if (status === 'awaiting') return '先歇一会儿，到点再算加班。'
   if (status === 'lunch') return '午休中，先吃饭，我看着点。'
+  if (status === 'overtime') return '加班呢，我再陪一会儿。'
   const left = formatDuration(remaining)
-  if (remaining >= 4 * 3600) return `还有 ${left}，行吧，我陪你。`
+  if (remaining >= 4 * 3600) return `还有 ${left}，我在这儿坐着。`
   if (remaining >= 3600) return `还有 ${left}，后半段了，稳住。`
   return `还有 ${left}，最后一公里。`
 }
@@ -459,11 +630,19 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const offDates = profile.offDates ?? []
   const workDates = profile.workDates ?? []
   const schedule = restScheduleFrom(profile)
+  const overtime = profile.overtime ?? {}
   const start = atTime(now, profile.startTime)
   const lunchOn = hasLunchBreak(profile)
   const lunchStart = lunchOn ? atTime(now, profile.lunchStartTime) : start
   const lunchEnd = lunchOn ? atTime(now, profile.lunchEndTime) : start
-  const end = atTime(now, profile.endTime)
+  const scheduledEnd = atTime(now, profile.endTime)
+  const todayOt = isOffDay(now, offDates, workDates, schedule)
+    ? { minutes: 0 }
+    : overtimeEntryOf(overtime, now)
+  const todayOtMinutes = todayOt.minutes
+  const todayOtSeconds = todayOtMinutes * 60
+  const otStart = atTime(now, overtimeClockStart(todayOt, profile.endTime))
+  const end = todayOtMinutes ? addMinutes(otStart, todayOtMinutes) : scheduledEnd
   const total = workSecondsFromTimes(
     profile.startTime,
     profile.endTime,
@@ -479,12 +658,17 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const netDaily = daily - dailyFixed
   const netWage = wagesFromDaily(netDaily, total)
   const pastWorkedDays = countWorkedDaysSoFar(now, offDates, workDates, false, schedule)
+  const pastOtPay = pastOvertimePay(now, overtime, offDates, workDates, schedule, wage.second)
+  const pastNetOtPay = pastOvertimePay(now, overtime, offDates, workDates, schedule, netWage.second)
   const payExtra = {
     monthlyFixed,
     dailyFixed,
     hasFixedCosts: monthlyFixed > 0,
     netDaily,
     netWage,
+    overtimeMinutes: todayOtMinutes,
+    overtimeHourly: todayOt.hourly ?? 0,
+    overtimeStart: overtimeClockStart(todayOt, profile.endTime),
   }
 
   if (isOffDay(now, offDates, workDates, schedule)) {
@@ -492,7 +676,7 @@ export function computeWorkDay(now: Date, profile: Profile) {
       start,
       lunchStart,
       lunchEnd,
-      end,
+      end: scheduledEnd,
       status: 'off' as const,
       total,
       worked: 0,
@@ -503,19 +687,25 @@ export function computeWorkDay(now: Date, profile: Profile) {
       progress: 0,
       workDays,
       workedDays: pastWorkedDays,
-      monthEarned: monthTotal(now, daily, 0, workDays, offDates, workDates, schedule),
+      monthEarned: monthTotal(now, daily, 0, workDays, offDates, workDates, schedule, pastOtPay),
       netEarned: 0,
-      netMonthEarned: monthTotal(now, netDaily, 0, workDays, offDates, workDates, schedule),
+      netMonthEarned: monthTotal(now, netDaily, 0, workDays, offDates, workDates, schedule, pastNetOtPay),
       ...payExtra,
     }
   }
 
-  const status = getStatus(now, start, lunchStart, lunchEnd, end)
-  const worked = getWorkedSeconds(now, start, lunchStart, lunchEnd, end, status)
-  const remaining = getRemainingSeconds(now, start, lunchStart, lunchEnd, end, status)
-  const earned = worked * wage.second
-  const netEarned = worked * netWage.second
-  const progress = Math.min(1, worked / total)
+  const status = getStatus(now, start, lunchStart, lunchEnd, scheduledEnd, otStart, end)
+  const worked = getWorkedSeconds(now, start, lunchStart, lunchEnd, scheduledEnd, status, todayOtSeconds, otStart)
+  const remaining = getRemainingSeconds(now, start, lunchStart, lunchEnd, scheduledEnd, status, end, otStart)
+  const standardWorked = Math.min(worked, total)
+  const otWorked = Math.max(0, worked - total)
+  const otSecond = overtimeSecondRate(todayOt, wage.second)
+  const netOtSecond = overtimeSecondRate(todayOt, netWage.second)
+  const earned = standardWorked * wage.second + otWorked * otSecond
+  const netEarned = standardWorked * netWage.second + otWorked * netOtSecond
+  const progress = todayOtSeconds
+    ? Math.min(1, worked / (total + todayOtSeconds))
+    : Math.min(1, standardWorked / total)
   const workedDays = countWorkedDaysSoFar(now, offDates, workDates, status !== 'before', schedule)
 
   return {
@@ -533,9 +723,9 @@ export function computeWorkDay(now: Date, profile: Profile) {
     progress,
     workDays,
     workedDays,
-    monthEarned: monthTotal(now, daily, earned, workDays, offDates, workDates, schedule),
+    monthEarned: monthTotal(now, daily, earned, workDays, offDates, workDates, schedule, pastOtPay),
     netEarned,
-    netMonthEarned: monthTotal(now, netDaily, netEarned, workDays, offDates, workDates, schedule),
+    netMonthEarned: monthTotal(now, netDaily, netEarned, workDays, offDates, workDates, schedule, pastNetOtPay),
     ...payExtra,
   }
 }

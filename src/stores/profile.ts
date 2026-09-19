@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { FixedCost, GoodsItem, OwnedItem, Profile, WeekendRule } from '../types'
-import { dateKey, isOfficialOffDay, normalizeWeekendRule, restScheduleFrom } from '../utils/work'
+import { dateKey, isOffDay, isOfficialOffDay, normalizeHHmm, normalizeOvertime, normalizeWeekendRule, restScheduleFrom } from '../utils/work'
 
 const STORAGE_KEY = 'work-today-profile-v1'
 
@@ -9,8 +9,6 @@ export const defaultGoods: GoodsItem[] = [
   { id: 'coffee', name: '咖啡', price: 15, unit: '杯' },
   { id: 'lunch', name: '午餐', price: 35, unit: '份' },
 ]
-
-const DEMO_MEMO = '今天要汇报王总的方案'
 
 export const defaultProfile: Profile = {
   monthlySalary: 12223,
@@ -26,12 +24,14 @@ export const defaultProfile: Profile = {
   fixedCosts: [],
   offDates: [],
   workDates: [],
+  overtime: {},
   weekendRule: 'double',
   bigWeekAnchor: '',
   salaryReady: false,
   showAfterCosts: false,
 }
 
+const MAX_GOODS = 5
 const MAX_BELONGINGS = 5
 const MAX_FIXED_COSTS = 5
 
@@ -53,6 +53,33 @@ function normalizeNamedAmounts<T extends OwnedItem | FixedCost>(raw: unknown, ma
       name: item.name.trim().slice(0, 16),
       price: Number(item.price) || 0,
     })) as T[]
+}
+
+function cloneGoods(items: GoodsItem[] = []): GoodsItem[] {
+  return items.slice(0, MAX_GOODS).map((item) => ({ ...item }))
+}
+
+function normalizeGoods(raw: unknown): GoodsItem[] {
+  if (!Array.isArray(raw)) return defaultGoods.map((item) => ({ ...item }))
+  return raw
+    .filter((item): item is Partial<GoodsItem> => {
+      if (!item || typeof item !== 'object') return false
+      const next = item as Partial<GoodsItem>
+      return typeof next.name === 'string' && Number(next.price) >= 0
+    })
+    .slice(0, MAX_GOODS)
+    .map((item, index) => {
+      const fallback = defaultGoods.find((good) => good.id === item.id) ?? defaultGoods[index]
+      return {
+        id: typeof item.id === 'string' && item.id ? item.id : `g-${index}`,
+        name: item.name?.trim().slice(0, 16) || fallback?.name || '未命名',
+        price: Number(item.price) || fallback?.price || 1,
+        unit:
+          typeof item.unit === 'string' && item.unit.trim()
+            ? item.unit.trim().slice(0, 4)
+            : fallback?.unit || '件',
+      }
+    })
 }
 
 function cloneBelongings(items: OwnedItem[] = []): OwnedItem[] {
@@ -96,18 +123,16 @@ function loadProfile(): Profile {
     return {
       ...defaultProfile,
       ...parsed,
-      memo: !salaryReady && memo === DEMO_MEMO ? '' : memo,
+      memo,
       salaryReady,
-      goods:
-        parsed.goods?.length === 2
-          ? parsed.goods.map((item, index) => ({ ...defaultGoods[index], ...item }))
-          : defaultGoods.map((item) => ({ ...item })),
+      goods: normalizeGoods(parsed.goods),
       offDates: Array.isArray(parsed.offDates)
         ? parsed.offDates.filter((item): item is string => typeof item === 'string')
         : [],
       workDates: Array.isArray(parsed.workDates)
         ? parsed.workDates.filter((item): item is string => typeof item === 'string')
         : [],
+      overtime: normalizeOvertime(parsed.overtime),
       belongings: normalizeBelongings(parsed.belongings),
       fixedCosts: normalizeFixedCosts(parsed.fixedCosts),
       hasLunch: parsed.hasLunch !== false,
@@ -137,9 +162,10 @@ export const useProfileStore = defineStore('profile', () => {
   function save(next: Profile) {
     profile.value = {
       ...next,
-      goods: next.goods.map((item) => ({ ...item })),
+      goods: cloneGoods(next.goods ?? profile.value.goods),
       offDates: Array.isArray(next.offDates) ? [...next.offDates] : [...profile.value.offDates],
       workDates: Array.isArray(next.workDates) ? [...next.workDates] : [...profile.value.workDates],
+      overtime: normalizeOvertime(next.overtime ?? profile.value.overtime),
       belongings: cloneBelongings(next.belongings ?? profile.value.belongings),
       fixedCosts: cloneFixedCosts(next.fixedCosts ?? profile.value.fixedCosts),
       weekendRule: normalizeWeekendRule(next.weekendRule ?? profile.value.weekendRule),
@@ -189,11 +215,34 @@ export const useProfileStore = defineStore('profile', () => {
       if (off) offDates.add(key)
       else workDates.add(key)
     }
+    const overtime = { ...profile.value.overtime }
+    if (off) delete overtime[key]
     profile.value = {
       ...profile.value,
       offDates: [...offDates],
       workDates: [...workDates],
+      overtime,
     }
+  }
+
+  function setOvertime(date: Date, minutes: number, hourly = 0, startTime?: string) {
+    if (isOffDay(date, profile.value.offDates, profile.value.workDates, restScheduleFrom(profile.value))) {
+      return
+    }
+    const key = dateKey(date)
+    const overtime = { ...profile.value.overtime }
+    const next = Math.min(8 * 60, Math.max(0, Math.round(minutes) || 0))
+    const rate = Math.max(0, Number(hourly) || 0)
+    const prev = overtime[key]
+    const start = normalizeHHmm(startTime ?? prev?.startTime)
+    if (next > 0) {
+      overtime[key] = {
+        minutes: next,
+        ...(rate > 0 ? { hourly: rate } : {}),
+        ...(start ? { startTime: start } : {}),
+      }
+    } else delete overtime[key]
+    profile.value = { ...profile.value, overtime }
   }
 
   function reset() {
@@ -207,5 +256,5 @@ export const useProfileStore = defineStore('profile', () => {
     })
   }
 
-  return { profile, coffee, lunch, save, setMemo, setShowAfterCosts, setDateOff, setWeekendRule, setThisWeekBig, reset }
+  return { profile, coffee, lunch, save, setMemo, setShowAfterCosts, setDateOff, setOvertime, setWeekendRule, setThisWeekBig, reset }
 })

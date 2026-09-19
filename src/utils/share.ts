@@ -1,7 +1,7 @@
 export const shareConfig = {
-  title: '小荧上班 · 看看距离下班还有多久',
+  title: '小芽上班 · 看看距离下班还有多久',
   path: '/pages/home/index',
-  imageUrl: '/static/xiaoying-avatar.png',
+  imageUrl: '/static/xiaoya-avatar.png',
 }
 
 export function onShareAppMessage() {

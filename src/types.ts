@@ -1,4 +1,4 @@
-export type WorkStatus = 'before' | 'working' | 'lunch' | 'after' | 'off'
+export type WorkStatus = 'before' | 'working' | 'lunch' | 'awaiting' | 'overtime' | 'after' | 'off'
 
 export type WeekendRule = 'double' | 'offSat' | 'offSun' | 'bigSmall'
 
@@ -26,6 +26,14 @@ export interface FixedCost {
   price: number
 }
 
+export interface OvertimeEntry {
+  minutes: number
+  hourly?: number
+  startTime?: string
+}
+
+export type OvertimeMap = Record<string, OvertimeEntry>
+
 export interface Profile {
   monthlySalary: number
   workDaysPerMonth: number
@@ -40,6 +48,7 @@ export interface Profile {
   fixedCosts: FixedCost[]
   offDates: string[]
   workDates: string[]
+  overtime: OvertimeMap
   weekendRule: WeekendRule
   bigWeekAnchor: string
   salaryReady: boolean

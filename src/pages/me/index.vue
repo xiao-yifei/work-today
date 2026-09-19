@@ -16,7 +16,7 @@ import { storeToRefs } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import { useProfileStore } from '../../stores/profile'
 import type { Profile } from '../../types'
-import { countWorkDaysInMonth, dailyFixedShare, dailySalary, formatMoney, monthlyFixedTotal, restScheduleFrom, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
+import { countWorkDaysInMonth, dailyFixedShare, dailySalary, formatMoney, monthOvertimePay, monthlyFixedTotal, restScheduleFrom, scheduleError, wagesFromDaily, workSecondsFromTimes } from '../../utils/work'
 
 const store = useProfileStore()
 const { profile } = storeToRefs(store)
@@ -34,7 +34,8 @@ const form = reactive<Profile>({
   belongings: profile.value.belongings.map((item) => ({ ...item })),
   fixedCosts: profile.value.fixedCosts.map((item) => ({ ...item })),
   offDates: [...profile.value.offDates],
-  workDates: [...profile.value.workDates],
+    workDates: [...profile.value.workDates],
+    overtime: { ...profile.value.overtime },
     weekendRule: profile.value.weekendRule,
     bigWeekAnchor: profile.value.bigWeekAnchor,
     salaryReady: profile.value.salaryReady,
@@ -53,9 +54,22 @@ const preview = computed(() => {
     store.profile.showAfterCosts && monthlyFixed > 0
       ? daily - dailyFixedShare(monthlyFixed, workDays.value)
       : daily
+  const wage = wagesFromDaily(usedDaily, total)
+  const salary = Number(salaryText.value) || 0
+  const overtime = monthOvertimePay(
+    new Date(),
+    store.profile.overtime,
+    store.profile.offDates,
+    store.profile.workDates,
+    restScheduleFrom(store.profile),
+    wagesFromDaily(daily, total).second,
+  )
   return {
     daily: usedDaily,
-    ...wagesFromDaily(usedDaily, total),
+    ...wage,
+    salary,
+    overtime,
+    income: salary + overtime,
   }
 })
 
@@ -93,6 +107,7 @@ function persist() {
     fixedCosts: store.profile.fixedCosts.map((item) => ({ ...item })),
     offDates: [...store.profile.offDates],
     workDates: [...store.profile.workDates],
+    overtime: { ...store.profile.overtime },
     weekendRule: store.profile.weekendRule,
     bigWeekAnchor: store.profile.bigWeekAnchor,
     salaryReady: hasSalary ? true : store.profile.salaryReady,
@@ -172,6 +187,7 @@ function setShowAfterCosts(on: boolean) {
             @blur="persist"
           />
         </view>
+        <text v-if="previewReady && preview.overtime > 0" class="income-note">本月加班 ¥{{ formatMoney(preview.overtime) }} · 总收入 ¥{{ formatMoney(preview.income) }}</text>
       </view>
       <view class="split">
         <view class="field half">
@@ -216,7 +232,7 @@ function setShowAfterCosts(on: boolean) {
       <text v-if="invalid" class="error">{{ invalid }}</text>
     </view>
 
-    <text class="privacy">小荧提示：你的信息只收在本地哦。</text>
+    <text class="privacy">小芽提示：你的信息只收在本地哦。</text>
   </view>
 </template>
 
@@ -309,6 +325,10 @@ function setShowAfterCosts(on: boolean) {
   font-size: 28rpx;
 }
 
+.muted-box {
+  color: #6d675c;
+}
+
 .switch-row {
   display: flex;
   align-items: center;
@@ -354,6 +374,13 @@ function setShowAfterCosts(on: boolean) {
 
 .switch.on .knob {
   left: 46rpx;
+}
+
+.income-note {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #8a8478;
 }
 
 .split {

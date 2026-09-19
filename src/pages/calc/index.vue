@@ -19,6 +19,7 @@ import { useProfileStore } from '../../stores/profile'
 import type { FixedCost, GoodsItem, OwnedItem } from '../../types'
 import { dailyFixedShare, formatDuration, formatMoney, resolveWorkSpan, restScheduleFrom } from '../../utils/work'
 
+const MAX_GOODS = 5
 const MAX_BELONGINGS = 5
 const MAX_FIXED_COSTS = 5
 const TABS: { id: CalcTab; label: string }[] = [
@@ -100,9 +101,11 @@ const items = computed(() =>
   }),
 )
 
-const invalid = computed(() =>
-  priceTexts.value.some((text) => !(Number(text) > 0)) ? '请填写有效单价' : '',
-)
+const invalid = computed(() => {
+  if (draft.value.some((item) => !item.name.trim())) return '请填写名称'
+  if (priceTexts.value.some((text) => !(Number(text) > 0))) return '请填写有效单价'
+  return ''
+})
 
 function persist() {
   if (invalid.value) return
@@ -110,6 +113,7 @@ function persist() {
     ...store.profile,
     goods: draft.value.map((item, index) => ({
       ...item,
+      name: item.name.trim().slice(0, 16),
       price: Number(priceTexts.value[index]) || 1,
     })),
   })
@@ -131,12 +135,29 @@ function toggleEdit() {
   editing.value = true
 }
 
+function onName(index: number, e: { detail: { value: string } }) {
+  if (!editing.value) return
+  const next = draft.value.map((item) => ({ ...item }))
+  next[index].name = e.detail.value
+  draft.value = next
+}
+
 function onPrice(index: number, e: { detail: { value: string } }) {
   if (!editing.value) return
   const texts = [...priceTexts.value]
   texts[index] = e.detail.value
   priceTexts.value = texts
 }
+
+function removeGoods(index: number) {
+  if (!editing.value || index < 2) return
+  draft.value = draft.value.filter((_, i) => i !== index)
+  priceTexts.value = priceTexts.value.filter((_, i) => i !== index)
+}
+
+const canAddGoods = computed(
+  () => !editing.value && store.profile.goods.length < MAX_GOODS,
+)
 
 interface StuffDraft {
   id: string
@@ -242,7 +263,7 @@ function removeStuff(index: number) {
   stuffDraft.value = stuffDraft.value.filter((_, i) => i !== index)
 }
 
-type AddKind = 'stuff' | 'cost'
+type AddKind = 'stuff' | 'cost' | 'goods'
 
 const addKind = ref<AddKind>('stuff')
 const addOpen = ref(false)
@@ -254,7 +275,9 @@ const canAdd = computed(
 )
 
 function openAdd(kind: AddKind = 'stuff') {
-  if (kind === 'cost' ? !canAddCost.value : !canAdd.value) return
+  if (kind === 'cost' && !canAddCost.value) return
+  if (kind === 'stuff' && !canAdd.value) return
+  if (kind === 'goods' && !canAddGoods.value) return
   addKind.value = kind
   addName.value = ''
   addPrice.value = ''
@@ -279,12 +302,13 @@ function confirmAdd() {
   const name = addName.value.trim().slice(0, 16)
   const price = Number(addPrice.value)
   const isCost = addKind.value === 'cost'
+  const isGoods = addKind.value === 'goods'
   if (!name) {
     addError.value = isCost ? '请填写支出名称' : '请填写物品名称'
     return
   }
   if (!(price > 0)) {
-    addError.value = isCost ? '请填写每月金额' : '请填写有效价格'
+    addError.value = isCost ? '请填写每月金额' : isGoods ? '请填写有效单价' : '请填写有效价格'
     return
   }
   if (isCost) {
@@ -296,6 +320,16 @@ function confirmAdd() {
         { id: `c-${Date.now()}`, name, price },
       ],
     })
+  } else if (isGoods) {
+    if (store.profile.goods.length >= MAX_GOODS) return
+    store.save({
+      ...store.profile,
+      goods: [
+        ...store.profile.goods,
+        { id: `g-${Date.now()}`, name, price, unit: '件' },
+      ],
+    })
+    syncDraft()
   } else {
     if (store.profile.belongings.length >= MAX_BELONGINGS) return
     store.save({
@@ -467,7 +501,7 @@ onHide(() => {
       </view>
 
       <view v-if="costRows.length" class="hero" @click="!salaryReady && goMe()">
-        <view v-if="costShowNet" class="hero-pair">
+        <view v-if="costShowNet" class="hero-pair tight">
           <view>
             <text class="hero-kicker">每个上班日先赚回</text>
             <text class="hero-num">¥{{ formatMoney(costDaily) }}</text>
@@ -481,7 +515,7 @@ onHide(() => {
           <text class="hero-kicker">每个上班日先赚回</text>
           <text class="hero-num" :class="{ locked: !salaryReady }">{{ salaryReady ? `¥${formatMoney(costDaily)}` : '写月薪后就能看' }}</text>
         </template>
-        <view class="bar">
+        <view v-if="!costShowNet" class="bar">
           <view class="bar-fill" :style="{ width: costCoverWidth }" />
         </view>
         <text v-if="salaryReady && costCover" class="hero-sub">{{ costCover }}</text>
@@ -533,7 +567,7 @@ onHide(() => {
     </view>
 
     <view v-else-if="tab === 'goods'">
-      <view class="toolbar">
+      <view v-if="items.length || editing" class="toolbar">
         <text class="earned" @click="!salaryReady && goMe()">
           {{ salaryReady ? `${view.afterCosts ? '按扣除支出后' : '按今日'} ¥${formatMoney(view.earned)}` : '写下月薪后就能换算' }}
         </text>
@@ -541,9 +575,24 @@ onHide(() => {
           <text>{{ editing ? '完成' : '编辑' }}</text>
         </view>
       </view>
-      <view class="tiles">
+      <view v-if="!items.length" class="empty" @click="!editing && openAdd('goods')">
+        <text class="empty-title">把今天的努力，换成生活里的小确幸</text>
+        <text class="empty-sub">{{ editing ? '点完成才会删掉' : '最多 5 件，点这里加上' }}</text>
+      </view>
+      <view v-else class="goods-grid">
         <view v-for="(item, index) in items" :key="item.id" class="tile">
-          <text class="tile-name">{{ item.name }}</text>
+          <input
+            v-if="editing"
+            class="name-input"
+            type="text"
+            maxlength="16"
+            placeholder="名称"
+            :value="draft[index].name"
+            :cursor-spacing="32"
+            adjust-position
+            @input="onName(index, $event)"
+          />
+          <text v-else class="tile-name">{{ item.name }}</text>
           <view v-if="editing" class="input-wrap">
             <input
               type="digit"
@@ -562,6 +611,11 @@ onHide(() => {
             {{ salaryReady ? `${item.count} ${item.unit}` : '写月薪后就能看' }}
           </text>
           <text v-if="salaryReady" class="tile-work">{{ item.workLabel }}</text>
+          <text v-if="editing && index >= 2" class="remove" @click.stop="removeGoods(index)">删除</text>
+        </view>
+        <view v-if="canAddGoods" class="tile add-card" @click="openAdd('goods')">
+          <text class="add-plus">+</text>
+          <text class="add-label">加一件</text>
         </view>
       </view>
       <text v-if="editing && invalid" class="error">{{ invalid }}</text>
@@ -638,7 +692,7 @@ onHide(() => {
         <view class="input-wrap">
           <input
             type="digit"
-            :placeholder="addKind === 'cost' ? '每月金额' : '价格'"
+            :placeholder="addKind === 'cost' ? '每月金额' : addKind === 'goods' ? '单价' : '价格'"
             :value="addPrice"
             :cursor-spacing="32"
             adjust-position
@@ -743,22 +797,18 @@ onHide(() => {
   font-size: 22rpx;
 }
 
-.tiles {
-  display: flex;
+.goods-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
 }
 
 .tile {
-  flex: 1;
   min-height: 280rpx;
   padding: 28rpx 24rpx;
-  margin-right: 16rpx;
   border-radius: 32rpx;
   background: #fffdf8;
   box-sizing: border-box;
-}
-
-.tile:last-child {
-  margin-right: 0;
 }
 
 .tile-name {
@@ -766,6 +816,19 @@ onHide(() => {
   font-size: 30rpx;
   font-weight: 700;
   color: #1c1b18;
+}
+
+.tile .name-input {
+  height: 64rpx;
+  margin-bottom: 0;
+  padding: 0 16rpx;
+  font-size: 26rpx;
+}
+
+.tile .input-wrap,
+.tile .input-wrap input {
+  height: 64rpx;
+  min-height: 64rpx;
 }
 
 .tile-price,
@@ -817,6 +880,10 @@ onHide(() => {
   margin-bottom: 28rpx;
 }
 
+.hero-pair.tight {
+  margin-bottom: 0;
+}
+
 .hero-pair .hero-num {
   margin-bottom: 0;
   font-size: 48rpx;
@@ -838,7 +905,7 @@ onHide(() => {
 .bar {
   height: 16rpx;
   border-radius: 16rpx;
-  background: #1c1b18;
+  background: rgba(246, 241, 232, 0.16);
   overflow: hidden;
 }
 
@@ -908,6 +975,28 @@ onHide(() => {
   padding: 28rpx;
   border-radius: 32rpx;
   background: #fffdf8;
+}
+
+.add-card {
+  min-height: 220rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #f6f1e8;
+  border: 2rpx dashed #c4b6a4;
+}
+
+.add-plus {
+  font-size: 48rpx;
+  line-height: 1;
+  color: #7c6246;
+}
+
+.add-label {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #7c6246;
 }
 
 .ticket-top {
