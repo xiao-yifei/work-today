@@ -627,7 +627,7 @@ export function companionText(
 ): string {
   if (status === 'off') return '今天不上班。'
   if (status === 'before') return '还不急，我先坐着。'
-  if (status === 'after') return '今天也够了。'
+  if (status === 'after') return '今天也很棒 ♡'
   if (status === 'awaiting') return '到点我再起来。'
   if (status === 'lunch') return '我看着点，你吃。'
   if (status === 'overtime') return '我再坐一会儿。'
