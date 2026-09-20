@@ -1,4 +1,4 @@
-import type { OvertimeEntry, OvertimeMap, Profile, WeekendRule, WeekendSchedule, WorkStatus } from '../types'
+import type { OvertimeEntry, OvertimeMap, Profile, WeekendRule, WeekendSchedule, WorkStatus } from '../types';
 import { isDefaultOffDay, isHolidayOff, isHolidayWork } from './holidays';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
@@ -707,27 +707,63 @@ export function heroTitle(status: WorkStatus, dayOff = false, shift = false): st
   return '距离下班还有'
 }
 
-export function heroSubtitle(status: WorkStatus, dayOff = false, shift = false): string {
+export function heroSubtitle(status: WorkStatus, dayOff = false, shift = false, remaining = 0): string {
   if (status === 'off') return '不算工时，好好过一天'
   if (status === 'before') return '先准备好，不慌不忙'
   if (status === 'after') return '收工了，去干点想干的'
   if (status === 'awaiting') return dayOff && shift ? '先准备好，不慌不忙' : '这段不计加班，到点再算'
   if (status === 'lunch') return '先吃饭，这段时间不计薪'
   if (status === 'overtime') return dayOff && shift ? '再撑一会儿就下班了' : '多待的这段，按平时秒薪算'
+  if (remaining >= 4 * 3600) return '刚开工，我陪你慢慢来'
+  if (remaining >= 2 * 3600) return '走过一截了，辛苦啦'
+  if (remaining >= 3600) return '后半段了，稳住'
   return '再撑一会儿就下班了'
 }
 
-export function companionText(status: WorkStatus, remaining: number, shiftRest = false): string {
-  if (status === 'off') return '今天不上班，我陪你趴着。'
-  if (status === 'before' || (status === 'awaiting' && shiftRest)) return '还没开工，我先趴一会儿。'
-  if (status === 'after') return '收工啦，今天也辛苦了。'
-  if (status === 'awaiting') return '先歇一会儿，到点再算加班。'
-  if (status === 'lunch') return '午休中，先吃饭，我看着点。'
-  if (status === 'overtime' && !shiftRest) return '加班呢，我再陪一会儿。'
-  const left = formatDuration(remaining)
-  if (remaining >= 4 * 3600) return `还有 ${left}，我在这儿坐着。`
-  if (remaining >= 3600) return `还有 ${left}，后半段了，稳住。`
-  return `还有 ${left}，最后一公里。`
+export function companionText(
+  status: WorkStatus,
+  remaining = 0,
+  ctx: {
+    salaryReady?: boolean
+    earned?: number
+    good?: { name: string; price: number; unit: string } | null
+    shiftRest?: boolean
+  } = {},
+): string {
+  if (status === 'off') return '今天不上班。'
+  if (status === 'before' || (status === 'awaiting' && ctx.shiftRest)) return '还不急，我先坐着。'
+  if (status === 'after') return '今天也很棒 ♡'
+  if (status === 'awaiting') return '到点我再起来。'
+  if (status === 'lunch') return '我看着点，你吃。'
+  if (status === 'overtime' && !ctx.shiftRest) return '我再坐一会儿。'
+  if (ctx.salaryReady) {
+    const purchase = purchaseCompanion(ctx.earned ?? 0, ctx.good)
+    if (purchase) return purchase
+  }
+  if (remaining >= 4 * 3600) return '我坐这儿。'
+  if (remaining >= 2 * 3600) return '还在。'
+  if (remaining >= 3600) return '就在旁边。'
+  return '最后这段，我陪着。'
+}
+
+function purchaseCompanion(
+  earned: number,
+  good?: { name: string; price: number; unit: string } | null,
+): string | null {
+  const price = good?.price ?? 0
+  if (!(price > 0) || !Number.isFinite(earned)) return null
+  const name = good?.name.trim() ?? ''
+  const unit = good?.unit.trim() || '件'
+  if (!name) return null
+  const count = Math.max(0, earned) / price
+  const short = name.length <= 6
+  if (count < 0.25) return '钱才刚起头。'
+  if (count < 1) return short ? `${name}已经快一${unit}了。` : `已经快一${unit}了。`
+  if (count < 2) return short ? `已经够一${unit}${name}了。` : `已经够一${unit}了。`
+  const shown = count >= 10
+    ? String(Math.floor(count))
+    : (Math.round(count * 10) / 10).toFixed(1).replace(/\.0$/, '')
+  return short ? `能换 ${shown} ${unit}${name}了。` : `能换 ${shown} ${unit}了。`
 }
 
 export function computeWorkDay(now: Date, profile: Profile) {

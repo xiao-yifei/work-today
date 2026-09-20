@@ -14,7 +14,6 @@ export default {
 import { onHide } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import MascotArt from '../../components/MascotArt.vue'
-import MascotFace from '../../components/MascotFace.vue'
 import { openCalc } from '../../composables/useCalcTab'
 import { useWorkDay } from '../../composables/useWorkDay'
 import { useProfileStore } from '../../stores/profile'
@@ -98,6 +97,14 @@ const goods = computed(() =>
     count: (Math.max(0, view.value.earned) / Math.max(1, item.price || 1)).toFixed(1),
   })),
 )
+const bubbleText = computed(() =>
+  companionText(snapshot.value.status, snapshot.value.remaining, {
+    salaryReady: salaryReady.value,
+    earned: view.value.earned,
+    good: store.profile.goods[0] ?? null,
+    shiftRest: snapshot.value.dayOff && snapshot.value.overtimeShift,
+  }),
+)
 const editingMemo = ref(false)
 
 function goTab(url: string) {
@@ -141,7 +148,7 @@ onHide(() => {
         <text class="hero-sub">{{
           snapshot.status === 'overtime' && !(snapshot.dayOff && snapshot.overtimeShift)
             ? `多待的这段，${otRateLabel}`
-            : heroSubtitle(snapshot.status, snapshot.dayOff, snapshot.overtimeShift)
+            : heroSubtitle(snapshot.status, snapshot.dayOff, snapshot.overtimeShift, snapshot.remaining)
         }}</text>
         <view class="earn">
           <text class="earn-label">{{ !idle && view.afterCosts ? '扣除支出后' : '今日已赚' }}</text>
@@ -151,6 +158,10 @@ onHide(() => {
             已上 {{ snapshot.workedDays }} 天{{ salaryReady ? ` · ¥${formatMoney(view.monthEarned)}` : '' }} ›
           </text>
         </view>
+      </view>
+      <view class="hero-bubble">
+        <text class="hero-bubble-text">{{ bubbleText }}</text>
+        <view class="hero-bubble-tail" />
       </view>
       <view class="hero-art">
         <MascotArt />
@@ -235,14 +246,6 @@ onHide(() => {
         @input="onMemo"
       />
       <text v-else class="memo">{{ store.profile.memo || '今天还没有备忘' }}</text>
-    </view>
-
-    <view class="card companion">
-      <view class="companion-copy">
-        <text class="card-title">小芽陪你</text>
-        <text class="companion-text">{{ companionText(snapshot.status, snapshot.remaining, snapshot.dayOff && snapshot.overtimeShift) }}</text>
-      </view>
-      <MascotFace />
     </view>
   </view>
 </template>
@@ -349,6 +352,34 @@ onHide(() => {
   position: absolute;
   right: 0;
   bottom: 12rpx;
+}
+
+.hero-bubble {
+  position: absolute;
+  right: 28rpx;
+  top: 28rpx;
+  z-index: 2;
+  max-width: 260rpx;
+  padding: 12rpx 18rpx 20rpx;
+  border-radius: 20rpx 20rpx 8rpx 20rpx;
+  background: #f6f1e8;
+}
+
+.hero-bubble-text {
+  font-size: 22rpx;
+  color: #2b2a26;
+  line-height: 1.4;
+}
+
+.hero-bubble-tail {
+  position: absolute;
+  right: 48rpx;
+  bottom: 6rpx;
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 2rpx;
+  background: #f6f1e8;
+  transform: rotate(45deg);
 }
 
 .card {
@@ -527,24 +558,5 @@ onHide(() => {
   font-size: 28rpx;
   line-height: 1.5;
   box-sizing: border-box;
-}
-
-.companion {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.companion-copy {
-  flex: 1;
-  margin-right: 16rpx;
-}
-
-.companion-text {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 26rpx;
-  color: #6d675c;
-  line-height: 1.6;
 }
 </style>
