@@ -32,6 +32,7 @@ import {
     overtimeMinutesOf,
     overtimePay,
     overtimeStartTime,
+    restOvertimeWindow,
     restScheduleFrom,
     weekendRuleLabel,
 } from '../../utils/work'
@@ -67,7 +68,6 @@ const days = computed(() =>
 const editing = ref(false)
 const picked = ref<Date | null>(null)
 const OT_PRESETS = [
-  { minutes: 0, label: '不用了' },
   { minutes: 60, label: '1小时' },
   { minutes: 120, label: '2小时' },
   { minutes: 180, label: '3小时' },
@@ -80,32 +80,104 @@ const pickedEntry = computed(() =>
 )
 const pickedMinutes = computed(() => pickedEntry.value.minutes)
 const pickedHourly = computed(() => pickedEntry.value.hourly ?? 0)
+const pickedDouble = computed(() => Boolean(pickedEntry.value.double))
+const pickedShift = computed(() => Boolean(pickedEntry.value.shift))
 const hourlyText = ref('')
 const rateFixed = ref(false)
 const startText = ref('')
-const pickedStart = computed(() => overtimeStartTime(pickedEntry.value, store.profile.endTime))
+const pickedStart = computed(() =>
+  overtimeStartTime(pickedEntry.value, pickedOff.value ? store.profile.startTime : store.profile.endTime),
+)
 const sheetDate = ref<Date | null>(null)
 const sheetOn = ref(false)
 const pickedIsToday = computed(() => pickedKey.value === dateKey(now.value))
+const pickedOff = computed(() =>
+  Boolean(
+    picked.value &&
+    isOffDay(picked.value, store.profile.offDates, store.profile.workDates, schedule.value),
+  ),
+)
+const pickedCell = computed(() => days.value.find((cell) => cell?.key === pickedKey.value) ?? null)
+const otOn = computed(() => pickedMinutes.value > 0)
 let ignoreClose = false
 let closeTimer: ReturnType<typeof setTimeout> | null = null
-const pickedDayEarned = computed(() =>
-  view.value.daily + overtimePay(pickedEntry.value, view.value.wage.second),
+const restOtTimes = computed(() => ({
+  startTime: store.profile.startTime,
+  endTime: store.profile.endTime,
+  lunchStartTime: store.profile.lunchStartTime,
+  lunchEndTime: store.profile.lunchEndTime,
+  hasLunch: store.profile.hasLunch,
+}))
+const restWindow = computed(() =>
+  pickedOff.value && otOn.value ? restOvertimeWindow(pickedEntry.value, restOtTimes.value) : null,
 )
-const sheetLead = computed(() => {
-  if (pickedIsToday.value) return '今天到点后，从加班开始时刻才计加班'
-  if (!salaryReady.value) return '写月薪后看当日收入'
-  return `当日收入约 ¥${formatMoney(pickedDayEarned.value)}`
+const restLunchOverlap = computed(() => restWindow.value?.lunchSeconds ?? 0)
+const pickedOtPay = computed(() =>
+  overtimePay(
+    pickedEntry.value,
+    view.value.wage.second,
+    restLunchOverlap.value,
+    restWindow.value?.paidSeconds,
+  ),
+)
+const pickedDayEarned = computed(() =>
+  (pickedOff.value ? 0 : view.value.daily) + pickedOtPay.value,
+)
+const dayKind = computed(() => {
+  const today = pickedIsToday.value ? '今天 · ' : ''
+  if (pickedOff.value) return `${today}${pickedCell.value?.isHoliday ? '法定假日' : '休息日'}`
+  if (pickedCell.value?.isMakeup) return `${today}调休上班`
+  return `${today}上班日`
+})
+const dayHours = computed(() => {
+  if (pickedOff.value && !pickedShift.value) return '不算工时'
+  const lunch = store.profile.hasLunch
+    ? `，午休 ${store.profile.lunchStartTime}–${store.profile.lunchEndTime}`
+    : ''
+  return `${store.profile.startTime}–${store.profile.endTime}${lunch}`
+})
+const dayAmount = computed(() => {
+  if (pickedOff.value && !otOn.value) return '不计收入'
+  if (!salaryReady.value) return '写月薪后就能看'
+  const amount = pickedIsToday.value ? view.value.earned : pickedDayEarned.value
+  return `¥${formatMoney(amount)}`
+})
+const dayMoneyLabel = computed(() => {
+  if (pickedOff.value && !otOn.value) return '休息不计工时'
+  if (!salaryReady.value) return '写下月薪后看这天收入'
+  if (pickedOff.value) {
+    const extra = pickedDouble.value ? ' · 双倍' : ''
+    return pickedIsToday.value ? `休息加班${extra}` : `休息加班收入${extra}`
+  }
+  if (pickedIsToday.value) return view.value.afterCosts ? '今日已赚 · 已扣固定支出' : '今日已赚'
+  return view.value.afterCosts ? '当日收入 · 已扣固定支出' : '当日收入'
 })
 const otHint = computed(() => {
   if (!pickedMinutes.value) return pickedIsToday.value ? '今天按平时下班' : '这天没有加班'
-  const text = formatDuration(pickedMinutes.value * 60)
-  const from = pickedStart.value !== store.profile.endTime ? `从 ${pickedStart.value} 起 · ` : ''
-  if (pickedHourly.value > 0) {
-    return `${from}加班 ${text} · ¥${formatMoney(pickedHourly.value, 0)}/小时 · 约 ¥${formatMoney(overtimePay(pickedEntry.value, snapshot.value.wage.second))}`
+  const double = pickedDouble.value ? ' · 双倍' : ''
+  const lunch = restLunchOverlap.value ? ` · 午休 ${formatDuration(restLunchOverlap.value)}不计` : ''
+  const pay = overtimePay(
+    pickedEntry.value,
+    snapshot.value.wage.second,
+    restLunchOverlap.value,
+    restWindow.value?.paidSeconds,
+  )
+  if (pickedShift.value) {
+    const hours = `${store.profile.startTime}–${store.profile.endTime}`
+    if (pickedHourly.value > 0) {
+      return `按上班节奏 ${hours}${lunch} · ¥${formatMoney(pickedHourly.value, 0)}/小时${double} · 约 ¥${formatMoney(pay)}`
+    }
+    if (!salaryReady.value) return `按上班节奏 ${hours}${lunch} · 平时秒薪${double}`
+    return `按上班节奏 ${hours}${lunch} · 平时秒薪${double} · 约 ¥${formatMoney(pay)}`
   }
-  if (!salaryReady.value) return `${from}加班 ${text} · 平时秒薪`
-  return `${from}加班 ${text} · 平时秒薪 · 约 ¥${formatMoney(overtimePay(pickedEntry.value, snapshot.value.wage.second))}`
+  const text = formatDuration(pickedMinutes.value * 60)
+  const defaultStart = pickedOff.value ? store.profile.startTime : store.profile.endTime
+  const from = pickedStart.value !== defaultStart ? `从 ${pickedStart.value} 起 · ` : ''
+  if (pickedHourly.value > 0) {
+    return `${from}加班 ${text}${lunch} · ¥${formatMoney(pickedHourly.value, 0)}/小时${double} · 约 ¥${formatMoney(pay)}`
+  }
+  if (!salaryReady.value) return `${from}加班 ${text}${lunch} · 平时秒薪${double}`
+  return `${from}加班 ${text}${lunch} · 平时秒薪${double} · 约 ¥${formatMoney(pay)}`
 })
 
 watch(picked, (date) => {
@@ -118,7 +190,12 @@ watch(picked, (date) => {
   const entry = overtimeEntryOf(store.profile.overtime, date)
   hourlyText.value = entry.hourly ? String(entry.hourly) : ''
   rateFixed.value = Boolean(entry.hourly)
-  startText.value = overtimeStartTime(entry, store.profile.endTime)
+  startText.value = overtimeStartTime(
+    entry,
+    isOffDay(date, store.profile.offDates, store.profile.workDates, schedule.value)
+      ? store.profile.startTime
+      : store.profile.endTime,
+  )
 })
 
 function toggleEdit() {
@@ -140,10 +217,6 @@ function onDay(cell: { day: number; isOff: boolean }) {
     store.setDateOff(date, !isOffDay(date, store.profile.offDates, store.profile.workDates, schedule.value))
     return
   }
-  if (cell.isOff) {
-    uni.showToast({ title: '休息日先改成上班，再记加班', icon: 'none' })
-    return
-  }
   if (closeTimer) {
     clearTimeout(closeTimer)
     closeTimer = null
@@ -158,13 +231,57 @@ function onDay(cell: { day: number; isOff: boolean }) {
   })
 }
 
-function persistOt(minutes: number, hourly = pickedHourly.value, start = startText.value, date = picked.value ?? sheetDate.value) {
+function toggleOt() {
+  if (!picked.value) return
+  if (otOn.value) {
+    persistOt(0, 0, startText.value, picked.value, false, false)
+    return
+  }
+  if (pickedOff.value) {
+    persistOt(1, 0, store.profile.startTime, picked.value, true, true)
+    return
+  }
+  persistOt(60, 0, startText.value || store.profile.endTime, picked.value, false, false)
+}
+
+function toggleDouble() {
+  if (!picked.value || !pickedOff.value || !pickedMinutes.value) return
+  persistOt(
+    pickedMinutes.value,
+    rateFixed.value ? Number(hourlyText.value) || 0 : 0,
+    startText.value,
+    picked.value,
+    !pickedDouble.value,
+    pickedShift.value,
+  )
+}
+
+function persistOt(
+  minutes: number,
+  hourly = pickedHourly.value,
+  start = startText.value,
+  date = picked.value ?? sheetDate.value,
+  double = pickedOff.value ? pickedDouble.value : false,
+  shift = pickedOff.value ? pickedShift.value : false,
+) {
   if (!date) return
-  store.setOvertime(date, minutes, hourly, start)
+  store.setOvertime(date, minutes, hourly, start, double, shift)
+}
+
+function pickShift() {
+  if (!picked.value || !pickedOff.value) return
+  persistOt(
+    1,
+    rateFixed.value ? Number(hourlyText.value) || 0 : 0,
+    store.profile.startTime,
+    picked.value,
+    pickedDouble.value,
+    true,
+  )
 }
 
 function pickOt(minutes: number) {
-  persistOt(minutes)
+  persistOt(minutes, pickedHourly.value, startText.value, picked.value ?? sheetDate.value, pickedOff.value ? pickedDouble.value : false, false)
 }
 
 function onCustomOt(e: { detail: { value: string } }) {
@@ -232,7 +349,7 @@ onHide(() => {
       <text>CALENDAR</text>
     </view>
     <text class="title">{{ monthLabel }}</text>
-    <text class="lead">点日期记加班。要改制度或休息，先点编辑。</text>
+    <text class="lead">点日期看当天。加班在弹层里开。要改制度或休息，先点编辑。</text>
 
     <view class="card" @click="!salaryReady && goMe()">
       <text class="muted">{{ view.afterCosts ? '本月累计 · 已扣固定支出' : '本月累计' }}</text>
@@ -300,52 +417,72 @@ onHide(() => {
     <view v-if="picked" class="overlay" :class="{ on: sheetOn }" @click.self="closeOt()" @touchmove.stop.prevent>
       <view class="sheet" @click.stop>
         <text class="sheet-title">{{ pickedLabel }}</text>
-        <text class="muted">{{ sheetLead }}</text>
-        <view v-if="pickedMinutes" class="ot-start">
-          <text class="muted">加班从</text>
-          <picker mode="time" :value="startText || pickedStart" @change="onOtStart">
-            <view class="chip">
-              <text>{{ startText || pickedStart }}</text>
+        <text class="muted">{{ dayKind }}</text>
+        <text v-if="!pickedOff || pickedShift" class="muted">{{ dayHours }}</text>
+        <text v-if="!pickedOff || otOn" class="sheet-money" :class="{ locked: !salaryReady }">{{ dayAmount }}</text>
+        <text v-if="!pickedOff || otOn" class="muted">{{ dayMoneyLabel }}</text>
+        <view class="switch-row">
+          <text class="label">加班</text>
+          <view class="switch" :class="{ on: otOn }" @click="toggleOt">
+            <view class="knob" />
+          </view>
+        </view>
+        <view v-if="otOn" class="ot-block">
+          <view v-if="!pickedShift" class="ot-start">
+            <text class="muted">加班从</text>
+            <picker mode="time" :value="startText || pickedStart" @change="onOtStart">
+              <view class="chip">
+                <text>{{ startText || pickedStart }}</text>
+              </view>
+            </picker>
+            <text class="muted">开始</text>
+          </view>
+          <view class="rules">
+            <view v-if="pickedOff" class="chip" :class="{ on: pickedShift }" @click="pickShift">
+              <text>跟上班一样</text>
             </view>
-          </picker>
-          <text class="muted">开始</text>
-        </view>
-        <view class="rules">
-          <view
-            v-for="item in OT_PRESETS"
-            :key="item.minutes"
-            class="chip"
-            :class="{ on: pickedMinutes === item.minutes }"
-            @click="pickOt(item.minutes)"
-          >
-            <text>{{ item.label }}</text>
-          </view>
-          <picker mode="time" :value="minutesToHHmm(pickedMinutes)" @change="onCustomOt">
-            <view class="chip" :class="{ on: pickedMinutes > 0 && ![0, 60, 120, 180].includes(pickedMinutes) }">
-              <text>{{ pickedMinutes > 0 && ![0, 60, 120, 180].includes(pickedMinutes) ? minutesToHHmm(pickedMinutes) : '其他' }}</text>
+            <view
+              v-for="item in OT_PRESETS"
+              :key="item.minutes"
+              class="chip"
+              :class="{ on: !pickedShift && pickedMinutes === item.minutes }"
+              @click="pickOt(item.minutes)"
+            >
+              <text>{{ item.label }}</text>
             </view>
-          </picker>
-        </view>
-        <view v-if="pickedMinutes" class="rules">
-          <view class="chip" :class="{ on: !rateFixed }" @click="pickRate(false)">
-            <text>平时秒薪</text>
+            <picker mode="time" :value="minutesToHHmm(pickedMinutes)" @change="onCustomOt">
+            <view class="chip" :class="{ on: !pickedShift && ![60, 120, 180].includes(pickedMinutes) }">
+              <text>{{ !pickedShift && ![60, 120, 180].includes(pickedMinutes) ? minutesToHHmm(pickedMinutes) : '其他' }}</text>
+              </view>
+            </picker>
           </view>
-          <view class="chip" :class="{ on: rateFixed }" @click="pickRate(true)">
-            <text>固定时薪</text>
+          <view class="rules">
+            <view class="chip" :class="{ on: !rateFixed }" @click="pickRate(false)">
+              <text>平时秒薪</text>
+            </view>
+            <view class="chip" :class="{ on: rateFixed }" @click="pickRate(true)">
+              <text>固定时薪</text>
+            </view>
           </view>
+          <view v-if="rateFixed" class="input-wrap">
+            <input
+              type="digit"
+              placeholder="每小时多少元"
+              :value="hourlyText"
+              :cursor-spacing="32"
+              adjust-position
+              @input="onHourly"
+            />
+          </view>
+          <view v-if="pickedOff" class="switch-row nested">
+            <text class="label">双倍工资</text>
+            <view class="switch" :class="{ on: pickedDouble }" @click="toggleDouble">
+              <view class="knob" />
+            </view>
+          </view>
+          <text class="muted">{{ otHint }}</text>
         </view>
-        <view v-if="pickedMinutes && rateFixed" class="input-wrap">
-          <input
-            type="digit"
-            placeholder="每小时多少元"
-            :value="hourlyText"
-            :cursor-spacing="32"
-            adjust-position
-            @input="onHourly"
-          />
-        </view>
-        <text class="muted">{{ otHint }}</text>
-        <view class="edit-btn done" @click="closeOt()">
+        <view v-if="!pickedOff || otOn" class="edit-btn done" @click="closeOt()">
           <text>好了</text>
         </view>
       </view>
@@ -564,7 +701,75 @@ onHide(() => {
   color: #1c1b18;
 }
 
+.sheet-money {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 52rpx;
+  font-weight: 700;
+  color: #1c1b18;
+}
+
+.sheet-money.locked {
+  font-size: 30rpx;
+}
+
 .sheet .muted {
+  margin-top: 8rpx;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 28rpx;
+}
+
+.switch-row.nested {
+  margin-top: 20rpx;
+}
+
+.switch-row .label {
+  font-size: 28rpx;
+  color: #1c1b18;
+}
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 96rpx;
+  height: 52rpx;
+  border-radius: 26rpx;
+  background: #efe8db;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+  transition: background-color 0.25s ease;
+}
+
+.switch.on {
+  background: #2b2a26;
+}
+
+.switch.dim {
+  opacity: 0.4;
+}
+
+.knob {
+  position: absolute;
+  top: 2rpx;
+  left: 2rpx;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 24rpx;
+  background: #fffdf8;
+  transition: left 0.25s ease;
+}
+
+.switch.on .knob {
+  left: 46rpx;
+}
+
+.ot-block {
   margin-top: 8rpx;
 }
 

@@ -44,6 +44,20 @@ const idle = computed(() =>
 )
 const dateLabel = computed(() => formatDateLabel(now.value))
 const salaryReady = computed(() => store.profile.salaryReady)
+const eyebrow = computed(() => (snapshot.value.dayOff ? 'RESTDAY · SPROUT' : 'WORKDAY · SPROUT'))
+const startLabel = computed(() =>
+  snapshot.value.dayOff && snapshot.value.overtimeMinutes
+    ? snapshot.value.overtimeStart
+    : store.profile.startTime,
+)
+const otRateLabel = computed(() => {
+  const hourly = snapshot.value.overtimeHourly
+  const double = snapshot.value.overtimeDouble
+  if (hourly > 0 && double) return `按 ¥${formatMoney(hourly, 0)}/小时 · 双倍算`
+  if (hourly > 0) return `按 ¥${formatMoney(hourly, 0)}/小时算`
+  if (double) return '按双倍平时秒薪算'
+  return '按平时秒薪算'
+})
 
 const clockText = computed(() => {
   if (snapshot.value.status === 'off' || snapshot.value.status === 'after') return '00:00:00'
@@ -60,11 +74,15 @@ const endLabel = computed(() =>
 const showLunchMeta = computed(() => store.profile.hasLunch && snapshot.value.status === 'lunch')
 const showOtMeta = computed(() =>
   snapshot.value.overtimeMinutes > 0 &&
-  (snapshot.value.status === 'overtime' || snapshot.value.status === 'after'),
+  (snapshot.value.status === 'overtime' ||
+    snapshot.value.status === 'after' ||
+    (snapshot.value.dayOff && snapshot.value.status === 'lunch')),
 )
 const liveWage = computed(() => {
-  const hourly = snapshot.value.overtimeHourly
-  if (snapshot.value.status === 'overtime' && hourly > 0) {
+  if (snapshot.value.status !== 'overtime') return view.value.wage
+  const multi = snapshot.value.overtimeDouble ? 2 : 1
+  if (snapshot.value.overtimeHourly > 0 || snapshot.value.overtimeDouble) {
+    const hourly = (snapshot.value.overtimeHourly || view.value.wage.hourly) * multi
     return {
       hourly,
       minute: hourly / 60,
@@ -105,25 +123,25 @@ onHide(() => {
   <view class="page">
     <view class="top">
       <view class="eyebrow">
-        <text>WORKDAY · SPROUT</text>
+        <text>{{ eyebrow }}</text>
       </view>
       <view class="title-row">
         <text class="date">{{ dateLabel }}</text>
-        <view class="badge" :class="{ rest: resting }" @click="goTab(resting || snapshot.status === 'overtime' || awaiting ? '/pages/calendar/index' : '/pages/me/index')">
+        <view class="badge" :class="{ rest: resting }" @click="goTab(resting || snapshot.status === 'overtime' || awaiting || (snapshot.dayOff && snapshot.status === 'lunch') ? '/pages/calendar/index' : '/pages/me/index')">
           <view class="dot" />
-          <text class="badge-text">{{ statusLabel(snapshot.status) }}</text>
+          <text class="badge-text">{{ statusLabel(snapshot.status, snapshot.dayOff, snapshot.overtimeShift) }}</text>
         </view>
       </view>
     </view>
 
     <view class="hero">
       <view class="hero-copy">
-        <text class="hero-kicker">{{ heroTitle(snapshot.status) }}</text>
+        <text class="hero-kicker">{{ heroTitle(snapshot.status, snapshot.dayOff, snapshot.overtimeShift) }}</text>
         <text class="hero-clock">{{ clockText }}</text>
         <text class="hero-sub">{{
-          snapshot.status === 'overtime' && snapshot.overtimeHourly
-            ? `多待的这段，按 ¥${formatMoney(snapshot.overtimeHourly, 0)}/小时算`
-            : heroSubtitle(snapshot.status)
+          snapshot.status === 'overtime' && !(snapshot.dayOff && snapshot.overtimeShift)
+            ? `多待的这段，${otRateLabel}`
+            : heroSubtitle(snapshot.status, snapshot.dayOff, snapshot.overtimeShift)
         }}</text>
         <view class="earn">
           <text class="earn-label">{{ !idle && view.afterCosts ? '扣除支出后' : '今日已赚' }}</text>
@@ -148,7 +166,7 @@ onHide(() => {
         <view class="bar-fill" :style="{ width: progressWidth }" />
       </view>
       <view class="bar-meta">
-        <text>{{ store.profile.startTime }}</text>
+        <text>{{ startLabel }}</text>
         <text>{{ workedLabel }}</text>
         <text>{{ endLabel }}</text>
       </view>
@@ -156,11 +174,13 @@ onHide(() => {
         午休 {{ store.profile.lunchStartTime }}–{{ store.profile.lunchEndTime }}，不计工时
       </text>
       <text v-if="showOtMeta" class="lunch-meta">
-        含加班 {{ formatDuration(snapshot.overtimeMinutes * 60) }}{{
-          snapshot.overtimeStart && snapshot.overtimeStart !== store.profile.endTime ? `，从 ${snapshot.overtimeStart} 起` : ''
-        }}，{{
-          snapshot.overtimeHourly ? `按 ¥${formatMoney(snapshot.overtimeHourly, 0)}/小时算` : '按平时秒薪算'
-        }}
+        {{ snapshot.overtimeShift ? '按上班节奏' : `含加班 ${formatDuration(snapshot.overtimeMinutes * 60)}` }}{{
+          !snapshot.overtimeShift && snapshot.overtimeStart && snapshot.overtimeStart !== store.profile.endTime
+            ? `，从 ${snapshot.overtimeStart} 起`
+            : ''
+        }}{{
+          snapshot.overtimeLunchSeconds ? `，午休 ${formatDuration(snapshot.overtimeLunchSeconds)}不计` : ''
+        }}，{{ otRateLabel }}
       </text>
     </view>
 
@@ -220,7 +240,7 @@ onHide(() => {
     <view class="card companion">
       <view class="companion-copy">
         <text class="card-title">小芽陪你</text>
-        <text class="companion-text">{{ companionText(snapshot.status, snapshot.remaining) }}</text>
+        <text class="companion-text">{{ companionText(snapshot.status, snapshot.remaining, snapshot.dayOff && snapshot.overtimeShift) }}</text>
       </view>
       <MascotFace />
     </view>

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import type { FixedCost, GoodsItem, OwnedItem, Profile, WeekendRule } from '../types'
-import { dateKey, isOffDay, isOfficialOffDay, normalizeHHmm, normalizeOvertime, normalizeWeekendRule, restScheduleFrom } from '../utils/work'
+import { dateKey, hhmmToSeconds, isOffDay, isOfficialOffDay, normalizeHHmm, normalizeOvertime, normalizeWeekendRule, restScheduleFrom } from '../utils/work'
 
 const STORAGE_KEY = 'work-today-profile-v1'
 
@@ -215,31 +215,58 @@ export const useProfileStore = defineStore('profile', () => {
       if (off) offDates.add(key)
       else workDates.add(key)
     }
-    const overtime = { ...profile.value.overtime }
-    if (off) delete overtime[key]
     profile.value = {
       ...profile.value,
       offDates: [...offDates],
       workDates: [...workDates],
-      overtime,
     }
   }
 
-  function setOvertime(date: Date, minutes: number, hourly = 0, startTime?: string) {
-    if (isOffDay(date, profile.value.offDates, profile.value.workDates, restScheduleFrom(profile.value))) {
-      return
-    }
+  function setOvertime(
+    date: Date,
+    minutes: number,
+    hourly = 0,
+    startTime?: string,
+    double?: boolean,
+    shift?: boolean,
+  ) {
     const key = dateKey(date)
     const overtime = { ...profile.value.overtime }
-    const next = Math.min(8 * 60, Math.max(0, Math.round(minutes) || 0))
-    const rate = Math.max(0, Number(hourly) || 0)
     const prev = overtime[key]
+    const off = isOffDay(date, profile.value.offDates, profile.value.workDates, restScheduleFrom(profile.value))
+    const keepDouble = off && (double ?? prev?.double ?? true)
+    const useShift = off && shift === true
+    const rate = Math.max(0, Number(hourly) || 0)
+    if (!(Math.round(minutes) > 0) && !useShift) {
+      delete overtime[key]
+      profile.value = { ...profile.value, overtime }
+      return
+    }
+    if (useShift) {
+      const clock = Math.max(
+        1,
+        Math.round(
+          (hhmmToSeconds(profile.value.endTime) - hhmmToSeconds(profile.value.startTime)) / 60,
+        ),
+      )
+      overtime[key] = {
+        minutes: clock,
+        shift: true,
+        startTime: profile.value.startTime,
+        ...(rate > 0 ? { hourly: rate } : {}),
+        ...(keepDouble ? { double: true } : {}),
+      }
+      profile.value = { ...profile.value, overtime }
+      return
+    }
+    const next = Math.min(8 * 60, Math.max(0, Math.round(minutes) || 0))
     const start = normalizeHHmm(startTime ?? prev?.startTime)
     if (next > 0) {
       overtime[key] = {
         minutes: next,
         ...(rate > 0 ? { hourly: rate } : {}),
         ...(start ? { startTime: start } : {}),
+        ...(keepDouble ? { double: true } : {}),
       }
     } else delete overtime[key]
     profile.value = { ...profile.value, overtime }

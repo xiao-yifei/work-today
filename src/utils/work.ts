@@ -49,7 +49,10 @@ function asOvertimeEntry(raw: unknown): OvertimeEntry | null {
   }
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Partial<OvertimeEntry>
-  const minutes = Math.min(MAX_OVERTIME_MINUTES, Math.round(Number(value.minutes) || 0))
+  const rawMinutes = Math.round(Number(value.minutes) || 0)
+  const minutes = value.shift
+    ? Math.max(1, Math.min(24 * 60, rawMinutes || 1))
+    : Math.min(MAX_OVERTIME_MINUTES, rawMinutes)
   if (!(minutes > 0)) return null
   const hourly = Number(value.hourly) || 0
   const startTime = normalizeHHmm(value.startTime)
@@ -57,6 +60,8 @@ function asOvertimeEntry(raw: unknown): OvertimeEntry | null {
     minutes,
     ...(hourly > 0 ? { hourly } : {}),
     ...(startTime ? { startTime } : {}),
+    ...(value.double ? { double: true } : {}),
+    ...(value.shift ? { shift: true } : {}),
   }
 }
 
@@ -71,9 +76,14 @@ export function overtimeStartTime(entry: OvertimeEntry, scheduledEnd: string): s
   return normalizeHHmm(entry.startTime) || scheduledEnd
 }
 
-export function overtimeClockStart(entry: OvertimeEntry, scheduledEnd: string): string {
-  const start = overtimeStartTime(entry, scheduledEnd)
-  return hhmmToSeconds(start) < hhmmToSeconds(scheduledEnd) ? scheduledEnd : start
+export function overtimeClockStart(entry: OvertimeEntry, fallback: string, clamp = true): string {
+  const start = overtimeStartTime(entry, fallback)
+  if (!clamp) return start
+  return hhmmToSeconds(start) < hhmmToSeconds(fallback) ? fallback : start
+}
+
+export function overtimePayMultiplier(entry: OvertimeEntry): number {
+  return entry.double ? 2 : 1
 }
 
 export function overtimeEntryOf(overtime: OvertimeMap | undefined, date: Date): OvertimeEntry {
@@ -88,9 +98,72 @@ export function overtimeSecondRate(entry: OvertimeEntry, fallbackSecond: number)
   return entry.hourly && entry.hourly > 0 ? entry.hourly / 3600 : fallbackSecond
 }
 
-export function overtimePay(entry: OvertimeEntry, fallbackSecond: number): number {
-  if (!(entry.minutes > 0)) return 0
-  return entry.minutes * 60 * overtimeSecondRate(entry, fallbackSecond)
+export function restOvertimeLunchOverlap(
+  entry: OvertimeEntry,
+  startFallback: string,
+  lunchStartTime: string,
+  lunchEndTime: string,
+  hasLunch = true,
+): number {
+  if (!hasLunch || !(entry.minutes > 0)) return 0
+  const start = hhmmToSeconds(overtimeStartTime(entry, startFallback))
+  const end = start + entry.minutes * 60
+  const lunchFrom = hhmmToSeconds(lunchStartTime)
+  const lunchTo = hhmmToSeconds(lunchEndTime)
+  if (lunchTo <= lunchFrom) return 0
+  return Math.max(0, Math.min(end, lunchTo) - Math.max(start, lunchFrom))
+}
+
+export function overtimePay(
+  entry: OvertimeEntry,
+  fallbackSecond: number,
+  lunchOverlapSeconds = 0,
+  paidSeconds?: number,
+): number {
+  if (!(entry.minutes > 0) && !entry.shift) return 0
+  const paid = paidSeconds ?? Math.max(0, entry.minutes * 60 - Math.max(0, lunchOverlapSeconds))
+  return paid * overtimeSecondRate(entry, fallbackSecond) * overtimePayMultiplier(entry)
+}
+
+export type RestOtTimes = Pick<Profile, 'startTime' | 'endTime' | 'lunchStartTime' | 'lunchEndTime'> & {
+  hasLunch?: boolean
+}
+
+export function restOvertimeWindow(entry: OvertimeEntry, times: RestOtTimes) {
+  const lunchOn = hasLunchBreak(times)
+  if (entry.shift) {
+    const clockSeconds = Math.max(0, hhmmToSeconds(times.endTime) - hhmmToSeconds(times.startTime))
+    const paidSeconds = workSecondsFromTimes(
+      times.startTime,
+      times.endTime,
+      times.lunchStartTime,
+      times.lunchEndTime,
+      lunchOn,
+    )
+    return {
+      start: times.startTime,
+      end: times.endTime,
+      clockSeconds,
+      lunchSeconds: Math.max(0, clockSeconds - paidSeconds),
+      paidSeconds,
+    }
+  }
+  const start = overtimeStartTime(entry, times.startTime)
+  const clockSeconds = Math.max(0, entry.minutes * 60)
+  const lunchSeconds = restOvertimeLunchOverlap(
+    entry,
+    times.startTime,
+    times.lunchStartTime,
+    times.lunchEndTime,
+    lunchOn,
+  )
+  return {
+    start,
+    end: times.endTime,
+    clockSeconds,
+    lunchSeconds,
+    paidSeconds: Math.max(0, clockSeconds - lunchSeconds),
+  }
 }
 
 export function normalizeOvertime(raw: unknown): OvertimeMap {
@@ -461,7 +534,7 @@ export function buildMonthDays(
       isOff: isOffDay(date, offDates, workDates, schedule),
       isHoliday: isHolidayOff(key),
       isMakeup: isHolidayWork(key),
-      isOvertime: !isOffDay(date, offDates, workDates, schedule) && overtimeMinutesOf(overtime, date) > 0,
+      isOvertime: overtimeMinutesOf(overtime, date) > 0,
     })
   }
   return cells
@@ -510,6 +583,23 @@ export function countWorkedDaysSoFar(
   return countWeekdaysUntilYesterday(now, offDates, workDates, schedule) + (includeToday ? 1 : 0)
 }
 
+function overtimePayOnDate(
+  date: Date,
+  overtime: OvertimeMap,
+  offDates: string[],
+  workDates: string[],
+  schedule: WeekendSchedule,
+  fallbackSecond: number,
+  lunch?: RestOtTimes,
+): number {
+  const entry = overtimeEntryOf(overtime, date)
+  if (lunch && isOffDay(date, offDates, workDates, schedule)) {
+    const window = restOvertimeWindow(entry, lunch)
+    return overtimePay(entry, fallbackSecond, 0, window.paidSeconds)
+  }
+  return overtimePay(entry, fallbackSecond)
+}
+
 export function pastOvertimePay(
   now: Date,
   overtime: OvertimeMap = {},
@@ -517,15 +607,22 @@ export function pastOvertimePay(
   workDates: string[] = [],
   schedule: WeekendSchedule = {},
   fallbackSecond: number,
+  lunch?: RestOtTimes,
 ): number {
   const year = now.getFullYear()
   const month = now.getMonth()
   const today = now.getDate()
   let pay = 0
   for (let day = 1; day < today; day += 1) {
-    const date = new Date(year, month, day)
-    if (isOffDay(date, offDates, workDates, schedule)) continue
-    pay += overtimePay(overtimeEntryOf(overtime, date), fallbackSecond)
+    pay += overtimePayOnDate(
+      new Date(year, month, day),
+      overtime,
+      offDates,
+      workDates,
+      schedule,
+      fallbackSecond,
+      lunch,
+    )
   }
   return pay
 }
@@ -537,15 +634,22 @@ export function monthOvertimePay(
   workDates: string[] = [],
   schedule: WeekendSchedule = {},
   fallbackSecond: number,
+  lunch?: RestOtTimes,
 ): number {
   const year = now.getFullYear()
   const month = now.getMonth()
   const last = new Date(year, month + 1, 0).getDate()
   let pay = 0
   for (let day = 1; day <= last; day += 1) {
-    const date = new Date(year, month, day)
-    if (isOffDay(date, offDates, workDates, schedule)) continue
-    pay += overtimePay(overtimeEntryOf(overtime, date), fallbackSecond)
+    pay += overtimePayOnDate(
+      new Date(year, month, day),
+      overtime,
+      offDates,
+      workDates,
+      schedule,
+      fallbackSecond,
+      lunch,
+    )
   }
   return pay
 }
@@ -583,43 +687,43 @@ export function formatWage(value: number, digits = 2): string {
   return formatMoney(value, digits)
 }
 
-export function statusLabel(status: WorkStatus): string {
+export function statusLabel(status: WorkStatus, dayOff = false, shift = false): string {
   if (status === 'off') return '今天休息'
   if (status === 'before') return '未上班'
   if (status === 'after') return '已下班'
-  if (status === 'awaiting') return '已下班'
+  if (status === 'awaiting') return dayOff ? (shift ? '未上班' : '等待加班') : '已下班'
   if (status === 'lunch') return '午休中'
-  if (status === 'overtime') return '加班中'
+  if (status === 'overtime') return dayOff && shift ? '正在上班' : '加班中'
   return '正在上班'
 }
 
-export function heroTitle(status: WorkStatus): string {
+export function heroTitle(status: WorkStatus, dayOff = false, shift = false): string {
   if (status === 'off') return '今日休息'
   if (status === 'before') return '距离上班还有'
   if (status === 'after') return '今日已收工'
-  if (status === 'awaiting') return '距离加班还有'
+  if (status === 'awaiting') return dayOff && shift ? '距离上班还有' : '距离加班还有'
   if (status === 'lunch') return '距离午休结束还有'
-  if (status === 'overtime') return '加班中，距离下班还有'
+  if (status === 'overtime') return dayOff && shift ? '距离下班还有' : '加班中，距离下班还有'
   return '距离下班还有'
 }
 
-export function heroSubtitle(status: WorkStatus): string {
+export function heroSubtitle(status: WorkStatus, dayOff = false, shift = false): string {
   if (status === 'off') return '不算工时，好好过一天'
   if (status === 'before') return '先准备好，不慌不忙'
   if (status === 'after') return '收工了，去干点想干的'
-  if (status === 'awaiting') return '这段不计加班，到点再算'
+  if (status === 'awaiting') return dayOff && shift ? '先准备好，不慌不忙' : '这段不计加班，到点再算'
   if (status === 'lunch') return '先吃饭，这段时间不计薪'
-  if (status === 'overtime') return '多待的这段，按平时秒薪算'
+  if (status === 'overtime') return dayOff && shift ? '再撑一会儿就下班了' : '多待的这段，按平时秒薪算'
   return '再撑一会儿就下班了'
 }
 
-export function companionText(status: WorkStatus, remaining: number): string {
+export function companionText(status: WorkStatus, remaining: number, shiftRest = false): string {
   if (status === 'off') return '今天不上班，我陪你趴着。'
-  if (status === 'before') return '还没开工，我先趴一会儿。'
+  if (status === 'before' || (status === 'awaiting' && shiftRest)) return '还没开工，我先趴一会儿。'
   if (status === 'after') return '收工啦，今天也辛苦了。'
   if (status === 'awaiting') return '先歇一会儿，到点再算加班。'
   if (status === 'lunch') return '午休中，先吃饭，我看着点。'
-  if (status === 'overtime') return '加班呢，我再陪一会儿。'
+  if (status === 'overtime' && !shiftRest) return '加班呢，我再陪一会儿。'
   const left = formatDuration(remaining)
   if (remaining >= 4 * 3600) return `还有 ${left}，我在这儿坐着。`
   if (remaining >= 3600) return `还有 ${left}，后半段了，稳住。`
@@ -636,12 +740,13 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const lunchStart = lunchOn ? atTime(now, profile.lunchStartTime) : start
   const lunchEnd = lunchOn ? atTime(now, profile.lunchEndTime) : start
   const scheduledEnd = atTime(now, profile.endTime)
-  const todayOt = isOffDay(now, offDates, workDates, schedule)
-    ? { minutes: 0 }
-    : overtimeEntryOf(overtime, now)
+  const dayOff = isOffDay(now, offDates, workDates, schedule)
+  const todayOt = overtimeEntryOf(overtime, now)
   const todayOtMinutes = todayOt.minutes
   const todayOtSeconds = todayOtMinutes * 60
-  const otStart = atTime(now, overtimeClockStart(todayOt, profile.endTime))
+  const otFallback = dayOff ? profile.startTime : profile.endTime
+  const otStartHHmm = overtimeClockStart(todayOt, otFallback, !dayOff)
+  const otStart = atTime(now, otStartHHmm)
   const end = todayOtMinutes ? addMinutes(otStart, todayOtMinutes) : scheduledEnd
   const total = workSecondsFromTimes(
     profile.startTime,
@@ -658,20 +763,45 @@ export function computeWorkDay(now: Date, profile: Profile) {
   const netDaily = daily - dailyFixed
   const netWage = wagesFromDaily(netDaily, total)
   const pastWorkedDays = countWorkedDaysSoFar(now, offDates, workDates, false, schedule)
-  const pastOtPay = pastOvertimePay(now, overtime, offDates, workDates, schedule, wage.second)
-  const pastNetOtPay = pastOvertimePay(now, overtime, offDates, workDates, schedule, netWage.second)
+  const lunchSpec: RestOtTimes = {
+    startTime: profile.startTime,
+    endTime: profile.endTime,
+    lunchStartTime: profile.lunchStartTime,
+    lunchEndTime: profile.lunchEndTime,
+    hasLunch: lunchOn,
+  }
+  const pastOtPay = pastOvertimePay(now, overtime, offDates, workDates, schedule, wage.second, lunchSpec)
+  const pastNetOtPay = pastOvertimePay(now, overtime, offDates, workDates, schedule, netWage.second, lunchSpec)
+  const otMulti = overtimePayMultiplier(todayOt)
+  const restWindow = dayOff && (todayOt.minutes > 0 || todayOt.shift)
+    ? restOvertimeWindow(todayOt, lunchSpec)
+    : null
+  const restOtStartHHmm = restWindow?.start ?? otStartHHmm
+  const restOtStart = restWindow ? atTime(now, restWindow.start) : otStart
+  const restOtEnd = restWindow
+    ? todayOt.shift
+      ? atTime(now, restWindow.end)
+      : addMinutes(restOtStart, todayOt.minutes)
+    : end
+  const restLunchOverlap = restWindow?.lunchSeconds ?? 0
+  const restClockSeconds = restWindow?.clockSeconds ?? todayOtSeconds
+  const restPaidSeconds = restWindow?.paidSeconds ?? Math.max(0, todayOtSeconds - restLunchOverlap)
   const payExtra = {
     monthlyFixed,
     dailyFixed,
     hasFixedCosts: monthlyFixed > 0,
     netDaily,
     netWage,
-    overtimeMinutes: todayOtMinutes,
+    overtimeMinutes: restWindow ? Math.round(restWindow.clockSeconds / 60) : todayOtMinutes,
     overtimeHourly: todayOt.hourly ?? 0,
-    overtimeStart: overtimeClockStart(todayOt, profile.endTime),
+    overtimeStart: restOtStartHHmm,
+    overtimeDouble: otMulti > 1,
+    overtimeLunchSeconds: restLunchOverlap,
+    overtimeShift: Boolean(todayOt.shift),
+    dayOff,
   }
 
-  if (isOffDay(now, offDates, workDates, schedule)) {
+  if (dayOff && !todayOtMinutes) {
     return {
       start,
       lunchStart,
@@ -694,13 +824,65 @@ export function computeWorkDay(now: Date, profile: Profile) {
     }
   }
 
+  if (dayOff) {
+    const lunchFrom = lunchStart < restOtStart ? restOtStart : lunchStart
+    const lunchTo = lunchEnd > restOtEnd ? restOtEnd : lunchEnd
+    const lunchInside = lunchOn && lunchTo.getTime() > lunchFrom.getTime()
+    const status: WorkStatus =
+      now < restOtStart
+        ? 'awaiting'
+        : now >= restOtEnd
+          ? 'after'
+          : lunchInside && now >= lunchFrom && now < lunchTo
+            ? 'lunch'
+            : 'overtime'
+    const until = now < restOtStart ? restOtStart : now < restOtEnd ? now : restOtEnd
+    const lunchTaken = lunchOn ? overlapSeconds(restOtStart, until, lunchStart, lunchEnd) : 0
+    const paidTotal = restPaidSeconds
+    const otWorked = now < restOtStart ? 0 : Math.min(paidTotal, Math.max(0, secondsBetween(restOtStart, until) - lunchTaken))
+    const leftoverLunch =
+      lunchInside && now < lunchFrom ? overlapSeconds(now, restOtEnd, lunchStart, lunchEnd) : 0
+    const remaining =
+      status === 'awaiting'
+        ? secondsBetween(now, restOtStart)
+        : status === 'lunch'
+          ? secondsBetween(now, lunchTo)
+          : status === 'overtime'
+            ? Math.max(0, secondsBetween(now, restOtEnd) - leftoverLunch)
+            : 0
+    const otSecond = overtimeSecondRate(todayOt, wage.second) * otMulti
+    const netOtSecond = overtimeSecondRate(todayOt, netWage.second) * otMulti
+    const earned = otWorked * otSecond
+    const netEarned = otWorked * netOtSecond
+    return {
+      start: restOtStart,
+      lunchStart,
+      lunchEnd,
+      end: restOtEnd,
+      status,
+      total: paidTotal,
+      worked: otWorked,
+      remaining,
+      daily,
+      wage,
+      earned,
+      progress: paidTotal ? Math.min(1, otWorked / paidTotal) : 0,
+      workDays,
+      workedDays: pastWorkedDays,
+      monthEarned: monthTotal(now, daily, earned, workDays, offDates, workDates, schedule, pastOtPay),
+      netEarned,
+      netMonthEarned: monthTotal(now, netDaily, netEarned, workDays, offDates, workDates, schedule, pastNetOtPay),
+      ...payExtra,
+    }
+  }
+
   const status = getStatus(now, start, lunchStart, lunchEnd, scheduledEnd, otStart, end)
   const worked = getWorkedSeconds(now, start, lunchStart, lunchEnd, scheduledEnd, status, todayOtSeconds, otStart)
   const remaining = getRemainingSeconds(now, start, lunchStart, lunchEnd, scheduledEnd, status, end, otStart)
   const standardWorked = Math.min(worked, total)
   const otWorked = Math.max(0, worked - total)
-  const otSecond = overtimeSecondRate(todayOt, wage.second)
-  const netOtSecond = overtimeSecondRate(todayOt, netWage.second)
+  const otSecond = overtimeSecondRate(todayOt, wage.second) * otMulti
+  const netOtSecond = overtimeSecondRate(todayOt, netWage.second) * otMulti
   const earned = standardWorked * wage.second + otWorked * otSecond
   const netEarned = standardWorked * netWage.second + otWorked * netOtSecond
   const progress = todayOtSeconds

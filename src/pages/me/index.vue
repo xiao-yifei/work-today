@@ -63,6 +63,13 @@ const preview = computed(() => {
     store.profile.workDates,
     restScheduleFrom(store.profile),
     wagesFromDaily(daily, total).second,
+    {
+      startTime: form.startTime,
+      endTime: form.endTime,
+      lunchStartTime: form.lunchStartTime,
+      lunchEndTime: form.lunchEndTime,
+      hasLunch: form.hasLunch,
+    },
   )
   return {
     daily: usedDaily,

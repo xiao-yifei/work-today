@@ -30,6 +30,8 @@ export interface OvertimeEntry {
   minutes: number
   hourly?: number
   startTime?: string
+  double?: boolean
+  shift?: boolean
 }
 
 export type OvertimeMap = Record<string, OvertimeEntry>
