@@ -152,7 +152,7 @@ onHide(() => {
         }}</text>
         <view class="earn">
           <text class="earn-label">{{ !idle && view.afterCosts ? '扣除支出后' : '今日已赚' }}</text>
-          <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(view.earned) }}</text>
+          <text v-if="salaryReady" class="earn-value">¥{{ formatMoney(view.earned, 2, true) }}</text>
           <text v-else class="earn-value locked" @click="goTab('/pages/me/index')">写月薪后就能看</text>
           <text class="month" @click="goTab(salaryReady ? '/pages/calendar/index' : '/pages/me/index')">
             已上 {{ snapshot.workedDays }} 天{{ salaryReady ? ` · ¥${formatMoney(view.monthEarned)}` : '' }} ›

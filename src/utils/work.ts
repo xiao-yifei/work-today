@@ -98,22 +98,6 @@ export function overtimeSecondRate(entry: OvertimeEntry, fallbackSecond: number)
   return entry.hourly && entry.hourly > 0 ? entry.hourly / 3600 : fallbackSecond
 }
 
-export function restOvertimeLunchOverlap(
-  entry: OvertimeEntry,
-  startFallback: string,
-  lunchStartTime: string,
-  lunchEndTime: string,
-  hasLunch = true,
-): number {
-  if (!hasLunch || !(entry.minutes > 0)) return 0
-  const start = hhmmToSeconds(overtimeStartTime(entry, startFallback))
-  const end = start + entry.minutes * 60
-  const lunchFrom = hhmmToSeconds(lunchStartTime)
-  const lunchTo = hhmmToSeconds(lunchEndTime)
-  if (lunchTo <= lunchFrom) return 0
-  return Math.max(0, Math.min(end, lunchTo) - Math.max(start, lunchFrom))
-}
-
 export function overtimePay(
   entry: OvertimeEntry,
   fallbackSecond: number,
@@ -150,19 +134,12 @@ export function restOvertimeWindow(entry: OvertimeEntry, times: RestOtTimes) {
   }
   const start = overtimeStartTime(entry, times.startTime)
   const clockSeconds = Math.max(0, entry.minutes * 60)
-  const lunchSeconds = restOvertimeLunchOverlap(
-    entry,
-    times.startTime,
-    times.lunchStartTime,
-    times.lunchEndTime,
-    lunchOn,
-  )
   return {
     start,
     end: times.endTime,
     clockSeconds,
-    lunchSeconds,
-    paidSeconds: Math.max(0, clockSeconds - lunchSeconds),
+    lunchSeconds: 0,
+    paidSeconds: clockSeconds,
   }
 }
 
@@ -668,7 +645,7 @@ export function monthTotal(
   return pastDays * daily + pastOvertimePay + todayEarned
 }
 
-export function formatMoney(value: number, digits = 2): string {
+export function formatMoney(value: number, digits = 2, pad = false): string {
   const safe = Number.isFinite(value) ? value : 0
   const negative = safe < 0
   const abs = Math.abs(safe)
@@ -676,7 +653,7 @@ export function formatMoney(value: number, digits = 2): string {
   const factor = 10 ** places
   const scaled = Math.round(abs * factor)
   const grouped = String(Math.floor(scaled / factor)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  if (places === 0 || scaled % factor === 0) {
+  if (places === 0 || (!pad && scaled % factor === 0)) {
     return negative ? `-${grouped}` : grouped
   }
   const frac = String(scaled % factor).padStart(places, '0')
@@ -730,20 +707,19 @@ export function companionText(
     shiftRest?: boolean
   } = {},
 ): string {
-  if (status === 'off') return '今天不上班。'
-  if (status === 'before' || (status === 'awaiting' && ctx.shiftRest)) return '还不急，我先坐着。'
+  if (status === 'off') return '今天不上班，我陪你趴着。'
+  if (status === 'before' || (status === 'awaiting' && ctx.shiftRest)) return '还没开工，我先趴一会儿。'
   if (status === 'after') return '今天也很棒 ♡'
-  if (status === 'awaiting') return '到点我再起来。'
-  if (status === 'lunch') return '我看着点，你吃。'
-  if (status === 'overtime' && !ctx.shiftRest) return '我再坐一会儿。'
+  if (status === 'awaiting') return '先歇一会儿。'
+  if (status === 'lunch') return '午休中，先吃饭，我看着点。'
+  if (status === 'overtime' && !ctx.shiftRest) return '加班呢，我再陪一会儿。'
   if (ctx.salaryReady) {
     const purchase = purchaseCompanion(ctx.earned ?? 0, ctx.good)
     if (purchase) return purchase
   }
-  if (remaining >= 4 * 3600) return '我坐这儿。'
-  if (remaining >= 2 * 3600) return '还在。'
-  if (remaining >= 3600) return '就在旁边。'
-  return '最后这段，我陪着。'
+  if (remaining >= 4 * 3600) return '我在这儿坐着。'
+  if (remaining >= 3600) return '后半段了，稳住。'
+  return '最后一公里。'
 }
 
 function purchaseCompanion(
@@ -861,9 +837,10 @@ export function computeWorkDay(now: Date, profile: Profile) {
   }
 
   if (dayOff) {
+    const useLunch = todayOt.shift && lunchOn
     const lunchFrom = lunchStart < restOtStart ? restOtStart : lunchStart
     const lunchTo = lunchEnd > restOtEnd ? restOtEnd : lunchEnd
-    const lunchInside = lunchOn && lunchTo.getTime() > lunchFrom.getTime()
+    const lunchInside = useLunch && lunchTo.getTime() > lunchFrom.getTime()
     const status: WorkStatus =
       now < restOtStart
         ? 'awaiting'
@@ -873,7 +850,7 @@ export function computeWorkDay(now: Date, profile: Profile) {
             ? 'lunch'
             : 'overtime'
     const until = now < restOtStart ? restOtStart : now < restOtEnd ? now : restOtEnd
-    const lunchTaken = lunchOn ? overlapSeconds(restOtStart, until, lunchStart, lunchEnd) : 0
+    const lunchTaken = useLunch ? overlapSeconds(restOtStart, until, lunchStart, lunchEnd) : 0
     const paidTotal = restPaidSeconds
     const otWorked = now < restOtStart ? 0 : Math.min(paidTotal, Math.max(0, secondsBetween(restOtStart, until) - lunchTaken))
     const leftoverLunch =

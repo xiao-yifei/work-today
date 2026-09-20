@@ -234,7 +234,7 @@ export const useProfileStore = defineStore('profile', () => {
     const overtime = { ...profile.value.overtime }
     const prev = overtime[key]
     const off = isOffDay(date, profile.value.offDates, profile.value.workDates, restScheduleFrom(profile.value))
-    const keepDouble = off && (double ?? prev?.double ?? true)
+    const keepDouble = off && (double ?? prev?.double ?? false)
     const useShift = off && shift === true
     const rate = Math.max(0, Number(hourly) || 0)
     if (!(Math.round(minutes) > 0) && !useShift) {

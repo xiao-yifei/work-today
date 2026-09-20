@@ -238,7 +238,7 @@ function toggleOt() {
     return
   }
   if (pickedOff.value) {
-    persistOt(1, 0, store.profile.startTime, picked.value, true, true)
+    persistOt(1, 0, store.profile.startTime, picked.value, false, true)
     return
   }
   persistOt(60, 0, startText.value || store.profile.endTime, picked.value, false, false)
