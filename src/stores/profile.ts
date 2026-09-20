@@ -7,7 +7,7 @@ const STORAGE_KEY = 'work-today-profile-v1'
 
 export const defaultGoods: GoodsItem[] = [
   { id: 'coffee', name: '咖啡', price: 15, unit: '杯' },
-  { id: 'lunch', name: '午餐', price: 35, unit: '份' },
+  { id: 'lunch', name: '午餐', price: 25, unit: '份' },
 ]
 
 export const defaultProfile: Profile = {

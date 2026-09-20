@@ -123,7 +123,7 @@ onHide(() => {
         <text class="hero-sub">{{
           snapshot.status === 'overtime' && snapshot.overtimeHourly
             ? `多待的这段，按 ¥${formatMoney(snapshot.overtimeHourly, 0)}/小时算`
-            : heroSubtitle(snapshot.status)
+            : heroSubtitle(snapshot.status, snapshot.remaining)
         }}</text>
         <view class="earn">
           <text class="earn-label">{{ !idle && view.afterCosts ? '扣除支出后' : '今日已赚' }}</text>
@@ -218,11 +218,15 @@ onHide(() => {
     </view>
 
     <view class="card companion">
-      <view class="companion-copy">
-        <text class="card-title">小芽陪你</text>
+      <view class="companion-main">
+        <view class="card-head">
+          <text class="card-title">小芽陪你</text>
+        </view>
         <text class="companion-text">{{ companionText(snapshot.status, snapshot.remaining) }}</text>
       </view>
-      <MascotFace />
+      <view class="companion-art">
+        <MascotFace />
+      </view>
     </view>
   </view>
 </template>
@@ -511,18 +515,27 @@ onHide(() => {
 
 .companion {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
 }
 
-.companion-copy {
+.companion-main {
   flex: 1;
   margin-right: 16rpx;
 }
 
+.companion-art {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 54px;
+  padding-top: 12px;
+  flex-shrink: 0;
+}
+
 .companion-text {
   display: block;
-  margin-top: 10rpx;
+  margin-top: 16rpx;
   font-size: 26rpx;
   color: #6d675c;
   line-height: 1.6;

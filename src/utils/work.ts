@@ -1,4 +1,4 @@
-import type { OvertimeEntry, OvertimeMap, Profile, WeekendRule, WeekendSchedule, WorkStatus } from '../types'
+import type { OvertimeEntry, OvertimeMap, Profile, WeekendRule, WeekendSchedule, WorkStatus } from '../types';
 import { isDefaultOffDay, isHolidayOff, isHolidayWork } from './holidays';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
@@ -603,13 +603,16 @@ export function heroTitle(status: WorkStatus): string {
   return '距离下班还有'
 }
 
-export function heroSubtitle(status: WorkStatus): string {
+export function heroSubtitle(status: WorkStatus, remaining = 0): string {
   if (status === 'off') return '不算工时，好好过一天'
   if (status === 'before') return '先准备好，不慌不忙'
   if (status === 'after') return '收工了，去干点想干的'
   if (status === 'awaiting') return '这段不计加班，到点再算'
   if (status === 'lunch') return '先吃饭，这段时间不计薪'
   if (status === 'overtime') return '多待的这段，按平时秒薪算'
+  if (remaining >= 4 * 3600) return '刚开工，我陪你慢慢来'
+  if (remaining >= 2 * 3600) return '走过一截了，辛苦啦'
+  if (remaining >= 3600) return '后半段了，我还在'
   return '再撑一会儿就下班了'
 }
 
