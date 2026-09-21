@@ -43,7 +43,7 @@ const idle = computed(() =>
 )
 const dateLabel = computed(() => formatDateLabel(now.value))
 const salaryReady = computed(() => store.profile.salaryReady)
-const eyebrow = computed(() => (snapshot.value.dayOff ? 'RESTDAY · SPROUT' : 'WORKDAY · SPROUT'))
+const eyebrow = computed(() => (snapshot.value.dayOff ? 'SPROUT RESTDAY' : 'SPROUT WORKDAY'))
 const startLabel = computed(() =>
   snapshot.value.dayOff && snapshot.value.overtimeMinutes
     ? snapshot.value.overtimeStart
