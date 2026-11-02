@@ -722,10 +722,44 @@ export function companionText(
   return '最后一公里。'
 }
 
+export function companionScene(
+  status: WorkStatus,
+  remaining = 0,
+  ctx: {
+    salaryReady?: boolean
+    earned?: number
+    good?: { name: string; price: number; unit: string } | null
+    shiftRest?: boolean
+  } = {},
+): { key: string; brief: string } {
+  if (status === 'off') return { key: 'off', brief: '今天休息，不上班。' }
+  if (status === 'before' || (status === 'awaiting' && ctx.shiftRest)) {
+    return { key: 'before', brief: '还没到上班时间。' }
+  }
+  if (status === 'after') return { key: 'after', brief: '已经下班。' }
+  if (status === 'awaiting') return { key: 'awaiting', brief: '已经下班，在等加班开始，这段不计薪。' }
+  if (status === 'lunch') return { key: 'lunch', brief: '正在午休，这段不计薪。' }
+  if (status === 'overtime' && !ctx.shiftRest) return { key: 'overtime', brief: '正在加班。' }
+  if (ctx.salaryReady) {
+    const purchase = purchaseFact(ctx.earned ?? 0, ctx.good)
+    if (purchase) return { key: purchase.key, brief: purchase.brief }
+  }
+  if (remaining >= 4 * 3600) return { key: 'work-early', brief: '正在上班，离下班还有大半天。' }
+  if (remaining >= 3600) return { key: 'work-late', brief: '正在上班，已经进入后半段。' }
+  return { key: 'work-last', brief: '正在上班，离下班不到一小时。' }
+}
+
 function purchaseCompanion(
   earned: number,
   good?: { name: string; price: number; unit: string } | null,
 ): string | null {
+  return purchaseFact(earned, good)?.line ?? null
+}
+
+function purchaseFact(
+  earned: number,
+  good?: { name: string; price: number; unit: string } | null,
+): { key: string; brief: string; line: string } | null {
   const price = good?.price ?? 0
   if (!(price > 0) || !Number.isFinite(earned)) return null
   const name = good?.name.trim() ?? ''
@@ -733,13 +767,32 @@ function purchaseCompanion(
   if (!name) return null
   const count = Math.max(0, earned) / price
   const short = name.length <= 6
-  if (count < 0.25) return '钱才刚起头。'
-  if (count < 1) return short ? `${name}已经快一${unit}了。` : `已经快一${unit}了。`
-  if (count < 2) return short ? `已经够一${unit}${name}了。` : `已经够一${unit}了。`
+  const item = short ? `${unit}${name}` : unit
+  if (count < 0.25) {
+    return { key: 'buy-start', brief: '正在上班，今天赚的还很少。', line: '钱才刚起头。' }
+  }
+  if (count < 1) {
+    return {
+      key: 'buy-almost',
+      brief: `正在上班，今天赚的快够一${item}。`,
+      line: short ? `${name}已经快一${unit}了。` : `已经快一${unit}了。`,
+    }
+  }
+  if (count < 2) {
+    return {
+      key: 'buy-one',
+      brief: `正在上班，今天赚的已经够一${item}。`,
+      line: short ? `已经够一${unit}${name}了。` : `已经够一${unit}了。`,
+    }
+  }
   const shown = count >= 10
     ? String(Math.floor(count))
     : (Math.round(count * 10) / 10).toFixed(1).replace(/\.0$/, '')
-  return short ? `能换 ${shown} ${unit}${name}了。` : `能换 ${shown} ${unit}了。`
+  return {
+    key: `buy-${Math.floor(count)}`,
+    brief: `正在上班，今天赚的大约能换 ${shown} ${item}。`,
+    line: short ? `能换 ${shown} ${unit}${name}了。` : `能换 ${shown} ${unit}了。`,
+  }
 }
 
 export function computeWorkDay(now: Date, profile: Profile) {

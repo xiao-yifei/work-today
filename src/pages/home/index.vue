@@ -1,4 +1,5 @@
 <script lang="ts">
+import { notifyCompanionShow } from '../../utils/arkCompanion'
 import { onShareAppMessage, onShareTimeline, showShareMenu } from '../../utils/share'
 
 export default {
@@ -6,6 +7,7 @@ export default {
   onShareTimeline,
   onShow() {
     showShareMenu()
+    notifyCompanionShow()
   },
 }
 </script>
@@ -15,19 +17,21 @@ import { onHide } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import MascotArt from '../../components/MascotArt.vue'
 import { openCalc } from '../../composables/useCalcTab'
+import { useCompanionBubble } from '../../composables/useCompanionBubble'
 import { useWorkDay } from '../../composables/useWorkDay'
 import { useProfileStore } from '../../stores/profile'
 import {
-  companionText,
-  formatClock,
-  formatDateLabel,
-  formatDuration,
-  formatHHmm,
-  formatMoney,
-  formatWage,
-  heroSubtitle,
-  heroTitle,
-  statusLabel,
+    companionScene,
+    companionText,
+    formatClock,
+    formatDateLabel,
+    formatDuration,
+    formatHHmm,
+    formatMoney,
+    formatWage,
+    heroSubtitle,
+    heroTitle,
+    statusLabel,
 } from '../../utils/work'
 
 const store = useProfileStore()
@@ -97,14 +101,19 @@ const goods = computed(() =>
     count: (Math.max(0, view.value.earned) / Math.max(1, item.price || 1)).toFixed(1),
   })),
 )
-const bubbleText = computed(() =>
-  companionText(snapshot.value.status, snapshot.value.remaining, {
+const bubbleScene = computed(() => {
+  const ctx = {
     salaryReady: salaryReady.value,
     earned: view.value.earned,
     good: store.profile.goods[0] ?? null,
     shiftRest: snapshot.value.dayOff && snapshot.value.overtimeShift,
-  }),
-)
+  }
+  return {
+    ...companionScene(snapshot.value.status, snapshot.value.remaining, ctx),
+    fallback: companionText(snapshot.value.status, snapshot.value.remaining, ctx),
+  }
+})
+const bubbleText = useCompanionBubble(bubbleScene)
 const editingMemo = ref(false)
 
 function goTab(url: string) {
